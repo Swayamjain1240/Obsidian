@@ -1,0 +1,23 @@
+{
+  "name": "obsidian",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Safe, review-first project enhancement platform",
+  "workspaces": [
+    "frontend",
+    "backend",
+    "AIServices"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace frontend",
+    "dev:backend": "npm run dev --workspace backend",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "audit": "npm audit --audit-level=high"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
