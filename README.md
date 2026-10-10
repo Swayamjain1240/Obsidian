@@ -123,7 +123,9 @@ The target is a meaningful commit history across the complete project, not artif
 
 ## Status
 
-This repository currently contains the product-control documentation and design baseline. Implementation will begin only after the documentation baseline is accepted.
+Part 1 foundation is complete. The repository now contains the three-package MERN-style application boundary, safe backend foundation, provider-neutral AI boundary, initial single-viewport shell, tests, and explicit not-implemented states. GitHub integration, repository analysis, repair workers, enhancement workers, and AI provider calls have not started.
+
+See the [Part 1 Duck Review](docs/project-enhancer/part-1-duck-review.md) for evidence, the 25-point review, deferred scope, and the next corrective action.
 
 ## License
 
