@@ -14,6 +14,8 @@ const config: AppConfig = {
   AI_PROVIDER: 'disabled',
   AI_PROVIDER_TIMEOUT_MS: 10_000,
   GITHUB_OAUTH_SCOPES: 'read:user,repo',
+  SNAPSHOT_MAX_BYTES: 52_428_800,
+  SNAPSHOT_ROOT: '.obsidian-workspaces',
 };
 
 describe('backend health routes', () => {

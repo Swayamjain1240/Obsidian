@@ -18,6 +18,8 @@ const configSchema = z.object({
   GITHUB_CALLBACK_URL: z.string().url().optional(),
   GITHUB_OAUTH_SCOPES: z.string().default('read:user,repo'),
   AUTH_SESSION_SECRET: z.string().min(32).optional(),
+  SNAPSHOT_MAX_BYTES: z.coerce.number().int().positive().max(500_000_000).default(52_428_800),
+  SNAPSHOT_ROOT: z.string().min(1).default('.obsidian-workspaces'),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

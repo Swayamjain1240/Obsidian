@@ -17,6 +17,8 @@ const config: AppConfig = {
   GITHUB_CALLBACK_URL: 'http://localhost:4000/auth/github/callback',
   GITHUB_OAUTH_SCOPES: 'read:user,repo',
   AUTH_SESSION_SECRET: 'a'.repeat(32),
+  SNAPSHOT_MAX_BYTES: 52_428_800,
+  SNAPSHOT_ROOT: '.obsidian-workspaces',
 };
 
 describe('GitHub OAuth configuration', () => {
