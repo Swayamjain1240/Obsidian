@@ -6,6 +6,10 @@ import { createSnapshotId, sha256, type RepositoryRef, type SnapshotRecord } fro
 export class SnapshotStore {
   constructor(private readonly root: string, private readonly maxBytes: number) {}
 
+  getMaxBytes(): number {
+    return this.maxBytes;
+  }
+
   async save(repository: RepositoryRef, archive: Uint8Array): Promise<SnapshotRecord> {
     if (archive.byteLength > this.maxBytes) {
       throw new Error('Repository snapshot exceeds the configured size limit.');
