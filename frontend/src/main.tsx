@@ -1,16 +1,9 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
 
+import { App } from './App';
 import './styles.css';
-
-function App() {
-  return (
-    <main>
-      <h1>Obsidian</h1>
-      <p>Project foundation is being prepared.</p>
-    </main>
-  );
-}
 
 const root = document.getElementById('root');
 
@@ -20,6 +13,8 @@ if (!root) {
 
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
   </StrictMode>,
 );
