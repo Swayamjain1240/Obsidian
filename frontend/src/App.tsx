@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 
 import { fetchIntakeStatus, fetchRepositories, type IntakeStatus, type RepositorySummary } from './api';
 
@@ -55,6 +55,7 @@ function HomePage() {
 }
 
 function RepositoryPage() {
+  const navigate = useNavigate();
   const [repositories, setRepositories] = useState<RepositorySummary[]>([]);
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +86,7 @@ function RepositoryPage() {
               <strong>{repository.name}</strong>
               <small>{repository.language ?? 'Language not detected'} · {repository.private ? 'Private' : 'Public'}</small>
             </span>
-            <button type="button" disabled>Coming soon</button>
+            <button type="button" onClick={() => navigate('/project/detect', { state: { repository } })}>Select</button>
           </li>
         ))}
       </ul>
@@ -95,6 +96,18 @@ function RepositoryPage() {
         <button type="button" onClick={() => setPage((current) => current + 1)} disabled={loading || repositories.length < 5}>Next</button>
       </div>
     </section>
+  );
+}
+
+function DetectionPage() {
+  const location = useLocation();
+  const repository = location.state?.repository as RepositorySummary | undefined;
+
+  return (
+    <PhasePage
+      title="Detect the project stack"
+      message={repository ? `Selected repository: ${repository.full_name}. Detection will use repository evidence and ask for confirmation before continuing.` : 'Select a repository before starting detection.'}
+    />
   );
 }
 
@@ -134,12 +147,7 @@ export function App() {
             />
             <Route
               path="/project/detect"
-              element={
-                <PhasePage
-                  title="Detect the project stack"
-                  message="Detection will use repository evidence and ask for confirmation before continuing."
-                />
-              }
+              element={<DetectionPage />}
             />
             <Route
               path="/project/confirm"
