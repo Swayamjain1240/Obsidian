@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 
-import { fetchIntakeStatus, type IntakeStatus } from './api';
+import { fetchIntakeStatus, fetchRepositories, type IntakeStatus, type RepositorySummary } from './api';
 
 const phases = [
   { path: '/home', label: 'Home' },
@@ -42,6 +42,62 @@ function FoundationStatus() {
   );
 }
 
+function HomePage() {
+  return (
+    <section className="phase-card" aria-labelledby="phase-title">
+      <span className="eyebrow">Part 2 · GitHub OAuth App</span>
+      <h1 id="phase-title">Improve your project safely</h1>
+      <p>Sign in with GitHub to select a repository. Obsidian will not fabricate repositories or change your original project.</p>
+      <a className="primary-action" href="/auth/github/start">Continue with GitHub</a>
+      <NavLink className="secondary-action" to="/project/select">Open repository selection</NavLink>
+    </section>
+  );
+}
+
+function RepositoryPage() {
+  const [repositories, setRepositories] = useState<RepositorySummary[]>([]);
+  const [page, setPage] = useState(1);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchRepositories(page)
+      .then((result) => {
+        setRepositories(result.repositories);
+        setError(null);
+      })
+      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Repositories are unavailable.'))
+      .finally(() => setLoading(false));
+  }, [page]);
+
+  return (
+    <section className="phase-card repository-card" aria-labelledby="repository-title">
+      <span className="eyebrow">Repository selection</span>
+      <h1 id="repository-title">Choose a project</h1>
+      {loading ? <p role="status">Loading your authorized repositories…</p> : null}
+      {error ? <p className="inline-error" role="alert">{error}</p> : null}
+      {!loading && !error && repositories.length === 0 ? <p>No repositories were returned for this page.</p> : null}
+      <ul className="repository-list">
+        {repositories.map((repository) => (
+          <li key={repository.id}>
+            <span>
+              <strong>{repository.name}</strong>
+              <small>{repository.language ?? 'Language not detected'} · {repository.private ? 'Private' : 'Public'}</small>
+            </span>
+            <button type="button" disabled>Coming soon</button>
+          </li>
+        ))}
+      </ul>
+      <div className="pagination" aria-label="Repository pagination">
+        <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1 || loading}>Previous</button>
+        <span>Page {page}</span>
+        <button type="button" onClick={() => setPage((current) => current + 1)} disabled={loading || repositories.length < 5}>Next</button>
+      </div>
+    </section>
+  );
+}
+
 export function App() {
   return (
     <div className="app-shell">
@@ -70,21 +126,11 @@ export function App() {
           <Routes>
             <Route
               path="/home"
-              element={
-                <PhasePage
-                  title="Improve your project safely"
-                  message="Connect a GitHub repository when you are ready. Analysis, repairs, and enhancements will always require review."
-                />
-              }
+              element={<HomePage />}
             />
             <Route
               path="/project/select"
-              element={
-                <PhasePage
-                  title="Select a repository"
-                  message="GitHub repository discovery will be enabled in a later part. No repositories are fabricated in the foundation."
-                />
-              }
+              element={<RepositoryPage />}
             />
             <Route
               path="/project/detect"
