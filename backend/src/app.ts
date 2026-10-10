@@ -8,6 +8,7 @@ import { errorBody } from './http/response.js';
 import { getIntakeStatus } from './intake-status.js';
 import { createAuthRouter } from './auth/router.js';
 import { SessionStore } from './auth/session-store.js';
+import { createGithubRouter } from './github/router.js';
 import { securityMiddleware } from './security.js';
 
 export function createApp(config: AppConfig) {
@@ -58,6 +59,7 @@ export function createApp(config: AppConfig) {
 
   const sessionStore = config.AUTH_SESSION_SECRET ? new SessionStore(config.AUTH_SESSION_SECRET) : undefined;
   app.use('/auth', createAuthRouter(config, undefined, sessionStore));
+  if (sessionStore) app.use('/api/v1/github', createGithubRouter(sessionStore));
 
   app.use((_request, response: Response) => {
     const requestId = response.locals.requestId as string;
