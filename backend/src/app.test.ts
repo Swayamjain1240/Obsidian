@@ -13,6 +13,7 @@ const config: AppConfig = {
   RATE_LIMIT_MAX_REQUESTS: 100,
   AI_PROVIDER: 'disabled',
   AI_PROVIDER_TIMEOUT_MS: 10_000,
+  GITHUB_OAUTH_SCOPES: 'read:user,repo',
 };
 
 describe('backend health routes', () => {
