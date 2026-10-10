@@ -1,5 +1,8 @@
 export type ErrorCode =
   | 'CONFIGURATION_ERROR'
+  | 'INVALID_INPUT'
+  | 'FORBIDDEN'
+  | 'RATE_LIMITED'
   | 'NOT_FOUND'
   | 'NOT_READY'
   | 'INTERNAL_ERROR';

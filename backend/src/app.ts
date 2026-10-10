@@ -5,13 +5,28 @@ import express, { type Request, type Response } from 'express';
 
 import type { AppConfig } from './config.js';
 import { errorBody } from './http/response.js';
+import { securityMiddleware } from './security.js';
 
 export function createApp(config: AppConfig) {
   const app = express();
 
   app.disable('x-powered-by');
+  app.set('trust proxy', 1);
+  app.use(securityMiddleware(config));
   app.use(express.json({ limit: '100kb' }));
-  app.use(cors({ origin: config.FRONTEND_ORIGIN, credentials: true }));
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        if (!origin || origin === config.FRONTEND_ORIGIN) {
+          callback(null, true);
+          return;
+        }
+
+        callback(new Error('Origin is not allowed.'));
+      },
+      credentials: true,
+    }),
+  );
   app.use((request, response, next) => {
     const requestId = request.header('x-request-id') ?? crypto.randomUUID();
     response.locals.requestId = requestId;

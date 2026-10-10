@@ -24,6 +24,15 @@ describe('backend health routes', () => {
     expect(response.status).toBe(200);
     expect(response.body.status).toBe('ok');
     expect(response.headers['x-request-id']).toBeTruthy();
+    expect(response.headers['x-content-type-options']).toBe('nosniff');
+  });
+
+  it('allows only the configured frontend origin', async () => {
+    const response = await request(app)
+      .get('/health/live')
+      .set('Origin', 'https://untrusted.example');
+
+    expect(response.headers['access-control-allow-origin']).toBeUndefined();
   });
 
   it('does not claim readiness before MongoDB is connected', async () => {
