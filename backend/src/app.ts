@@ -6,6 +6,7 @@ import express, { type Request, type Response } from 'express';
 import type { AppConfig } from './config.js';
 import { errorBody } from './http/response.js';
 import { getIntakeStatus } from './intake-status.js';
+import { createAuthRouter } from './auth/router.js';
 import { securityMiddleware } from './security.js';
 
 export function createApp(config: AppConfig) {
@@ -53,6 +54,8 @@ export function createApp(config: AppConfig) {
       requestId: response.locals.requestId,
     });
   });
+
+  app.use('/auth', createAuthRouter(config));
 
   app.use((_request, response: Response) => {
     const requestId = response.locals.requestId as string;

@@ -3,6 +3,7 @@ export type ErrorCode =
   | 'INVALID_INPUT'
   | 'FORBIDDEN'
   | 'RATE_LIMITED'
+  | 'AUTH_NOT_CONFIGURED'
   | 'NOT_FOUND'
   | 'NOT_READY'
   | 'INTERNAL_ERROR';
