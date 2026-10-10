@@ -41,8 +41,26 @@ const runSchema = new Schema(
   { timestamps },
 );
 
+const systemEventSchema = new Schema(
+  {
+    eventId: { type: String, required: true, unique: true, immutable: true },
+    eventType: { type: String, required: true, immutable: true },
+    timestamp: { type: Date, required: true, immutable: true },
+    sessionId: { type: String, required: true, immutable: true },
+    projectId: { type: String, required: true, immutable: true },
+    runId: { type: String, required: true, immutable: true },
+    phase: { type: String, required: true, immutable: true },
+    status: { type: String, required: true, immutable: true },
+    safeSummary: { type: String, required: true, immutable: true },
+    affectedPaths: { type: [String], required: true, immutable: true },
+    userActionRequired: { type: Boolean, required: true, immutable: true },
+  },
+  { timestamps: false },
+);
+
 export const ProjectModel = mongoose.models.Project ?? mongoose.model('Project', projectSchema);
 export const RepositorySnapshotModel =
   mongoose.models.RepositorySnapshot ?? mongoose.model('RepositorySnapshot', repositorySnapshotSchema);
 export const SessionModel = mongoose.models.Session ?? mongoose.model('Session', sessionSchema);
 export const RunModel = mongoose.models.Run ?? mongoose.model('Run', runSchema);
+export const SystemEventModel = mongoose.models.SystemEvent ?? mongoose.model('SystemEvent', systemEventSchema);
