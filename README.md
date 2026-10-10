@@ -123,9 +123,9 @@ The target is a meaningful commit history across the complete project, not artif
 
 ## Status
 
-Part 1 foundation is complete. The repository now contains the three-package MERN-style application boundary, safe backend foundation, provider-neutral AI boundary, initial single-viewport shell, tests, and explicit not-implemented states. GitHub integration, repository analysis, repair workers, enhancement workers, and AI provider calls have not started.
+Part 2 is complete. The repository now includes a GitHub OAuth App boundary with state/PKCE protection, signed session handling, authenticated paginated repository listing, and a repository selection handoff. Stack detection, repository snapshots, completeness checks, repair workers, enhancement workers, and AI provider calls have not started.
 
-See the [Part 1 Duck Review](docs/project-enhancer/part-1-duck-review.md) for evidence, the 25-point review, deferred scope, and the next corrective action.
+See the [Part 1 Duck Review](docs/project-enhancer/part-1-duck-review.md) and [Part 2 Duck Review](docs/project-enhancer/part-2-duck-review.md) for evidence, the 25-point reviews, deferred scope, and corrective actions.
 
 ## License
 
