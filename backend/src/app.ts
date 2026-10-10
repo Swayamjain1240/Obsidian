@@ -5,6 +5,7 @@ import express, { type Request, type Response } from 'express';
 
 import type { AppConfig } from './config.js';
 import { errorBody } from './http/response.js';
+import { getIntakeStatus } from './intake-status.js';
 import { securityMiddleware } from './security.js';
 
 export function createApp(config: AppConfig) {
@@ -42,6 +43,13 @@ export function createApp(config: AppConfig) {
     response.status(503).json({
       status: 'not_ready',
       checks: { mongodb: 'not_connected' },
+      requestId: response.locals.requestId,
+    });
+  });
+
+  app.get('/api/v1/status', (_request: Request, response: Response) => {
+    response.json({
+      status: getIntakeStatus(),
       requestId: response.locals.requestId,
     });
   });

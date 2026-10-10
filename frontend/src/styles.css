@@ -104,6 +104,25 @@ a {
   padding: 2rem;
 }
 
+.foundation-status {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  display: grid;
+  gap: 0.35rem;
+  width: min(18rem, calc(100vw - 2rem));
+  padding: 0.85rem 1rem;
+  border: 1px solid #2a3446;
+  border-radius: 0.75rem;
+  color: #9ba7b9;
+  background: #111620;
+  font-size: 0.78rem;
+}
+
+.foundation-status strong {
+  color: #f4f7fb;
+}
+
 .phase-card {
   width: min(100%, 42rem);
   display: grid;
@@ -184,5 +203,10 @@ p {
   .phase-main {
     min-height: calc(100svh - 8.25rem);
     padding: 1rem;
+  }
+
+  .foundation-status {
+    position: static;
+    margin: 0 1rem 1rem;
   }
 }

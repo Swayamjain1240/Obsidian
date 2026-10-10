@@ -1,4 +1,7 @@
+import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
+
+import { fetchIntakeStatus, type IntakeStatus } from './api';
 
 const phases = [
   { path: '/home', label: 'Home' },
@@ -18,6 +21,24 @@ function PhasePage({ title, message }: { title: string; message: string }) {
         Not implemented yet
       </div>
     </section>
+  );
+}
+
+function FoundationStatus() {
+  const [status, setStatus] = useState<IntakeStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchIntakeStatus().then(setStatus).catch(() => setError('Backend status unavailable.'));
+  }, []);
+
+  return (
+    <aside className="foundation-status" aria-label="Foundation status">
+      <strong>Foundation status</strong>
+      {status ? <span>GitHub connection: {status.github}</span> : null}
+      {status ? <span>AI analysis: {status.aiAnalysis}</span> : null}
+      {error ? <span>{error}</span> : null}
+    </aside>
   );
 }
 
@@ -95,6 +116,7 @@ export function App() {
             <Route path="*" element={<Navigate replace to="/home" />} />
           </Routes>
         </main>
+        <FoundationStatus />
       </div>
     </div>
   );
