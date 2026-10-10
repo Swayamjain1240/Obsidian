@@ -72,6 +72,25 @@ export class GithubApiClient {
     return this.request<GithubRepository[]>(url.toString());
   }
 
+  async downloadRepositoryArchive(repository: { owner: string; name: string; branch: string }, maxBytes: number): Promise<Uint8Array> {
+    const url = `https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/tarball/${encodeURIComponent(repository.branch)}`;
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${this.accessToken}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      redirect: 'follow',
+    });
+
+    if (!response.ok) throw new Error('GitHub repository archive request failed.');
+    const length = Number(response.headers.get('content-length') ?? 0);
+    if (length > maxBytes) throw new Error('GitHub repository archive exceeds the configured size limit.');
+    const buffer = new Uint8Array(await response.arrayBuffer());
+    if (buffer.byteLength > maxBytes) throw new Error('GitHub repository archive exceeds the configured size limit.');
+    return buffer;
+  }
+
   private async request<T>(url: string): Promise<T> {
     const response = await fetch(url, {
       headers: {
