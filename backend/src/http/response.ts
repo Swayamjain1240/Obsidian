@@ -4,6 +4,7 @@ export type ErrorCode =
   | 'FORBIDDEN'
   | 'RATE_LIMITED'
   | 'AUTH_NOT_CONFIGURED'
+  | 'AUTH_CALLBACK_FAILED'
   | 'NOT_FOUND'
   | 'NOT_READY'
   | 'INTERNAL_ERROR';

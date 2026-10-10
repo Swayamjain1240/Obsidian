@@ -25,6 +25,10 @@ interface GithubTokenResponse {
 export class GithubApiClient {
   constructor(private readonly accessToken: string) {}
 
+  getAccessToken(): string {
+    return this.accessToken;
+  }
+
   static async exchangeCode(input: {
     clientId: string;
     clientSecret: string;
