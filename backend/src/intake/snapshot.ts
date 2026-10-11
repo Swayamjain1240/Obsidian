@@ -11,6 +11,7 @@ export interface SnapshotRecord {
   snapshotId: string;
   repository: RepositoryRef;
   archivePath: string;
+  manifestPath: string;
   archiveSha256: string;
   byteLength: number;
   capturedAt: string;

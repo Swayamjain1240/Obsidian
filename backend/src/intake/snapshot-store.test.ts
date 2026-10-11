@@ -17,6 +17,7 @@ describe('snapshot store', () => {
       expect(first.snapshotId).toBe(second.snapshotId);
       expect(first.immutable).toBe(true);
       expect(new TextDecoder().decode(await readFile(first.archivePath))).toBe('archive');
+      expect(JSON.parse(await readFile(first.manifestPath, 'utf8')).archiveSha256).toBe(first.archiveSha256);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

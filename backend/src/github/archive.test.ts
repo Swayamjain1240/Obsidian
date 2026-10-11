@@ -44,4 +44,23 @@ describe('GitHub repository archive download', () => {
 
     await expect(new GithubApiClient('token').downloadRepositoryArchive({ owner: 'o', name: 'r', branch: 'main' }, 10)).rejects.toThrow(/size limit/);
   });
+
+  it('stops a chunked response when it exceeds the configured size limit', async () => {
+    const reader = {
+      read: vi
+        .fn()
+        .mockResolvedValueOnce({ done: false, value: new Uint8Array(7) })
+        .mockResolvedValueOnce({ done: false, value: new Uint8Array(4) }),
+      cancel: vi.fn().mockResolvedValue(undefined),
+      releaseLock: vi.fn(),
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers(),
+      body: { getReader: () => reader },
+    }));
+
+    await expect(new GithubApiClient('token').downloadRepositoryArchive({ owner: 'o', name: 'r', branch: 'main' }, 10)).rejects.toThrow(/size limit/);
+    expect(reader.cancel).toHaveBeenCalledOnce();
+  });
 });

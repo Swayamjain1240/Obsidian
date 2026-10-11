@@ -102,8 +102,38 @@ export class GithubApiClient {
     if (!response.ok) throw new Error('GitHub repository archive request failed.');
     const length = Number(response.headers.get('content-length') ?? 0);
     if (length > maxBytes) throw new Error('GitHub repository archive exceeds the configured size limit.');
-    const buffer = new Uint8Array(await response.arrayBuffer());
-    if (buffer.byteLength > maxBytes) throw new Error('GitHub repository archive exceeds the configured size limit.');
+
+    if (!response.body) {
+      const buffer = new Uint8Array(await response.arrayBuffer());
+      if (buffer.byteLength > maxBytes) throw new Error('GitHub repository archive exceeds the configured size limit.');
+      return buffer;
+    }
+
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let byteLength = 0;
+
+    try {
+      while (true) {
+        const result = await reader.read();
+        if (result.done) break;
+        byteLength += result.value.byteLength;
+        if (byteLength > maxBytes) {
+          await reader.cancel();
+          throw new Error('GitHub repository archive exceeds the configured size limit.');
+        }
+        chunks.push(result.value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    const buffer = new Uint8Array(byteLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      buffer.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
     return buffer;
   }
 
