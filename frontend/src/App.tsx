@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 
-import { fetchIntakeStatus, fetchRepositories, type IntakeStatus, type RepositorySummary } from './api';
+import { createRepositorySnapshot, fetchIntakeStatus, fetchRepositories, type IntakeStatus, type RepositorySummary, type SnapshotResult } from './api';
 
 const phases = [
   { path: '/home', label: 'Home' },
@@ -102,12 +102,40 @@ function RepositoryPage() {
 function DetectionPage() {
   const location = useLocation();
   const repository = location.state?.repository as RepositorySummary | undefined;
+  const [snapshot, setSnapshot] = useState<SnapshotResult | null>(null);
+  const [status, setStatus] = useState<'idle' | 'creating' | 'error'>('idle');
+  const [error, setError] = useState<string | null>(null);
+
+  const startSnapshot = async () => {
+    if (!repository) return;
+    setStatus('creating');
+    setError(null);
+    try {
+      const result = await createRepositorySnapshot({
+        owner: repository.full_name.split('/')[0] ?? '',
+        name: repository.name,
+        branch: repository.default_branch,
+      });
+      setSnapshot(result);
+      setStatus('idle');
+    } catch (reason: unknown) {
+      setStatus('error');
+      setError(reason instanceof Error ? reason.message : 'Snapshot could not be created.');
+    }
+  };
 
   return (
-    <PhasePage
-      title="Detect the project stack"
-      message={repository ? `Selected repository: ${repository.full_name}. Detection will use repository evidence and ask for confirmation before continuing.` : 'Select a repository before starting detection.'}
-    />
+    <section className="phase-card" aria-labelledby="phase-title">
+      <span className="eyebrow">Read-only repository intake</span>
+      <h1 id="phase-title">Create a safe snapshot</h1>
+      <p>{repository ? `Selected repository: ${repository.full_name}. No analysis or code execution starts until an immutable snapshot is created.` : 'Select a repository before starting intake.'}</p>
+      {status === 'creating' ? <p role="status">Downloading and hashing the repository archive…</p> : null}
+      {error ? <p className="inline-error" role="alert">{error}</p> : null}
+      {snapshot ? <div className="status-badge" role="status">Snapshot {snapshot.snapshot.snapshotId} · immutable · analysis not started</div> : null}
+      <button className="primary-action" type="button" onClick={startSnapshot} disabled={!repository || status === 'creating' || Boolean(snapshot)}>
+        {snapshot ? 'Snapshot created' : 'Create immutable snapshot'}
+      </button>
+    </section>
   );
 }
 
