@@ -15,6 +15,10 @@ export interface GithubRepository {
   updated_at: string;
 }
 
+interface GithubCommitResponse {
+  sha?: string;
+}
+
 interface GithubTokenResponse {
   access_token?: string;
   token_type?: string;
@@ -72,8 +76,20 @@ export class GithubApiClient {
     return this.request<GithubRepository[]>(url.toString());
   }
 
-  async downloadRepositoryArchive(repository: { owner: string; name: string; branch: string }, maxBytes: number): Promise<Uint8Array> {
-    const url = `https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/tarball/${encodeURIComponent(repository.branch)}`;
+  async getBranchCommitSha(repository: { owner: string; name: string; branch: string }): Promise<string> {
+    const url = `https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/commits/${encodeURIComponent(repository.branch)}`;
+    const commit = await this.request<GithubCommitResponse>(url);
+
+    if (!commit.sha || !/^[a-f0-9]{40}$/i.test(commit.sha)) {
+      throw new Error('GitHub did not return a valid commit SHA.');
+    }
+
+    return commit.sha;
+  }
+
+  async downloadRepositoryArchive(repository: { owner: string; name: string; branch: string; commitSha?: string }, maxBytes: number): Promise<Uint8Array> {
+    const ref = repository.commitSha ?? repository.branch;
+    const url = `https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/tarball/${encodeURIComponent(ref)}`;
     const response = await fetch(url, {
       headers: {
         Accept: 'application/vnd.github+json',

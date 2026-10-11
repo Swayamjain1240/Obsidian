@@ -10,9 +10,10 @@ import { createAuthRouter } from './auth/router.js';
 import { SessionStore } from './auth/session-store.js';
 import { createGithubRouter } from './github/router.js';
 import { createIntakeRouter } from './intake/router.js';
+import type { RepositoryIntakeService } from './intake/service.js';
 import { securityMiddleware } from './security.js';
 
-export function createApp(config: AppConfig) {
+export function createApp(config: AppConfig, dependencies: { sessionStore?: SessionStore; intakeService?: RepositoryIntakeService } = {}) {
   const app = express();
 
   app.disable('x-powered-by');
@@ -58,10 +59,10 @@ export function createApp(config: AppConfig) {
     });
   });
 
-  const sessionStore = config.AUTH_SESSION_SECRET ? new SessionStore(config.AUTH_SESSION_SECRET) : undefined;
+  const sessionStore = dependencies.sessionStore ?? (config.AUTH_SESSION_SECRET ? new SessionStore(config.AUTH_SESSION_SECRET) : undefined);
   app.use('/auth', createAuthRouter(config, undefined, sessionStore));
   if (sessionStore) app.use('/api/v1/github', createGithubRouter(sessionStore));
-  if (sessionStore) app.use('/api/v1/intake', createIntakeRouter(config, sessionStore));
+  if (sessionStore) app.use('/api/v1/intake', createIntakeRouter(config, sessionStore, dependencies.intakeService));
 
   app.use((_request, response: Response) => {
     const requestId = response.locals.requestId as string;

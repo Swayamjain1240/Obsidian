@@ -23,7 +23,7 @@ export function sha256(buffer: Uint8Array): string {
 
 export function createSnapshotId(repository: RepositoryRef, archiveSha256: string): string {
   return createHash('sha256')
-    .update(`${repository.owner}/${repository.name}@${repository.branch}:${archiveSha256}`)
+    .update(`${repository.owner}/${repository.name}@${repository.commitSha ?? repository.branch}:${archiveSha256}`)
     .digest('hex')
     .slice(0, 32);
 }

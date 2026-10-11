@@ -8,7 +8,10 @@ import { SnapshotStore } from './snapshot-store.js';
 
 describe('repository intake service', () => {
   it('creates a snapshot and does not start analysis', async () => {
-    const client = { downloadRepositoryArchive: vi.fn().mockResolvedValue(new TextEncoder().encode('archive')) };
+    const client = {
+      getBranchCommitSha: vi.fn().mockResolvedValue('a'.repeat(40)),
+      downloadRepositoryArchive: vi.fn().mockResolvedValue(new TextEncoder().encode('archive')),
+    };
     const root = await mkdtemp(path.join(os.tmpdir(), 'obsidian-intake-'));
     try {
       const store = new SnapshotStore(root, 1024);
@@ -21,9 +24,11 @@ describe('repository intake service', () => {
       expect(result.intakeId).toBeTruthy();
       expect(result.analysisStatus).toBe('not_started');
       expect(client.downloadRepositoryArchive).toHaveBeenCalledWith(
-        { owner: 'owner', name: 'repo', branch: 'main' },
+        { owner: 'owner', name: 'repo', branch: 'main', commitSha: 'a'.repeat(40) },
         1024,
       );
+      expect(client.getBranchCommitSha).toHaveBeenCalledWith({ owner: 'owner', name: 'repo', branch: 'main' });
+      expect(result.snapshot.repository.commitSha).toBe('a'.repeat(40));
     } finally {
       await rm(root, { recursive: true, force: true });
     }

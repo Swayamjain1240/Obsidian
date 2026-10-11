@@ -15,9 +15,9 @@ const repositorySchema = z.object({
   branch: z.string().regex(/^[A-Za-z0-9_.\/-]+$/).max(200),
 });
 
-export function createIntakeRouter(config: AppConfig, sessionStore: SessionStore) {
+export function createIntakeRouter(config: AppConfig, sessionStore: SessionStore, intakeService?: RepositoryIntakeService) {
   const router = Router();
-  const intake = new RepositoryIntakeService(new SnapshotStore(config.SNAPSHOT_ROOT, config.SNAPSHOT_MAX_BYTES));
+  const intake = intakeService ?? new RepositoryIntakeService(new SnapshotStore(config.SNAPSHOT_ROOT, config.SNAPSHOT_MAX_BYTES));
   router.use(requireGithubSession(sessionStore));
 
   router.post('/snapshot', async (request, response) => {
@@ -30,7 +30,26 @@ export function createIntakeRouter(config: AppConfig, sessionStore: SessionStore
     try {
       const session = response.locals.githubSession as { accessToken: string };
       const result = await intake.createSnapshot(new GithubApiClient(session.accessToken), parsed.data);
-      response.status(201).json({ intake: result, requestId: response.locals.requestId });
+      response.status(201).json({
+        intake: {
+          intakeId: result.intakeId,
+          snapshot: {
+            snapshotId: result.snapshot.snapshotId,
+            archiveSha256: result.snapshot.archiveSha256,
+            byteLength: result.snapshot.byteLength,
+            capturedAt: result.snapshot.capturedAt,
+            immutable: result.snapshot.immutable,
+            repository: {
+              owner: result.snapshot.repository.owner,
+              name: result.snapshot.repository.name,
+              branch: result.snapshot.repository.branch,
+              commitSha: result.snapshot.repository.commitSha,
+            },
+          },
+          analysisStatus: result.analysisStatus,
+        },
+        requestId: response.locals.requestId,
+      });
     } catch {
       response.status(502).json(errorBody('GITHUB_API_ERROR', 'Repository snapshot could not be created.', response.locals.requestId as string));
     }

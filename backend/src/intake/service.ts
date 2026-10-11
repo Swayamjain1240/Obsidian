@@ -10,6 +10,7 @@ export interface IntakeResult {
 }
 
 export interface RepositoryArchiveSource {
+  getBranchCommitSha(repository: RepositoryRef): Promise<string>;
   downloadRepositoryArchive(repository: RepositoryRef, maxBytes: number): Promise<Uint8Array>;
 }
 
@@ -17,8 +18,10 @@ export class RepositoryIntakeService {
   constructor(private readonly snapshotStore: SnapshotStore) {}
 
   async createSnapshot(client: RepositoryArchiveSource, repository: RepositoryRef): Promise<IntakeResult> {
-    const archive = await client.downloadRepositoryArchive(repository, this.snapshotStore.getMaxBytes());
-    const snapshot = await this.snapshotStore.save(repository, archive);
+    const commitSha = repository.commitSha ?? await client.getBranchCommitSha(repository);
+    const immutableRepository = { ...repository, commitSha };
+    const archive = await client.downloadRepositoryArchive(immutableRepository, this.snapshotStore.getMaxBytes());
+    const snapshot = await this.snapshotStore.save(immutableRepository, archive);
     return { intakeId: randomUUID(), snapshot, analysisStatus: 'not_started' };
   }
 }
