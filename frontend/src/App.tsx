@@ -36,6 +36,7 @@ function FoundationStatus() {
     <aside className="foundation-status" aria-label="Foundation status">
       <strong>Foundation status</strong>
       {status ? <span>GitHub connection: {status.github}</span> : null}
+      {status ? <span>Repository snapshot: {status.repositorySnapshot}</span> : null}
       {status ? <span>AI analysis: {status.aiAnalysis}</span> : null}
       {error ? <span>{error}</span> : null}
     </aside>

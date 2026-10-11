@@ -123,9 +123,9 @@ The target is a meaningful commit history across the complete project, not artif
 
 ## Status
 
-Part 2 is complete. The repository now includes a GitHub OAuth App boundary with state/PKCE protection, signed session handling, authenticated paginated repository listing, and a repository selection handoff. Stack detection, repository snapshots, completeness checks, repair workers, enhancement workers, and AI provider calls have not started.
+Part 3 is complete. The repository now includes a GitHub OAuth App boundary, authenticated repository selection, verified branch-commit resolution, bounded archive download, immutable local snapshot storage, snapshot manifests, and a read-only intake handoff. Stack detection, completeness checks, baseline testing, repair workers, enhancement workers, and AI provider calls have not started.
 
-See the [Part 1 Duck Review](docs/project-enhancer/part-1-duck-review.md) and [Part 2 Duck Review](docs/project-enhancer/part-2-duck-review.md) for evidence, the 25-point reviews, deferred scope, and corrective actions.
+See the [Part 1 Duck Review](docs/project-enhancer/part-1-duck-review.md), [Part 2 Duck Review](docs/project-enhancer/part-2-duck-review.md), and [Part 3 Duck Review](docs/project-enhancer/part-3-duck-review.md) for evidence, the 25-point reviews, deferred scope, and corrective actions.
 
 ## License
 

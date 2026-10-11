@@ -8,6 +8,7 @@ describe('intake status', () => {
 
     expect(status.github).toBe('not_implemented');
     expect(status.repositoryDiscovery).toBe('not_implemented');
+    expect(status.repositorySnapshot).toBe('implemented');
     expect(status.aiAnalysis).toBe('not_available');
   });
 });
