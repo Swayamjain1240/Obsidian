@@ -2,9 +2,10 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 
 import { createApp } from './app.js';
-import type { AppConfig } from './config.js';
+import { loadConfig, type AppConfig } from './config.js';
 
 const config: AppConfig = {
+  ...loadConfig({ NODE_ENV: 'test', MONGODB_URI: 'mongodb://localhost/obsidian-test', FRONTEND_ORIGIN: 'http://localhost:5173' }),
   NODE_ENV: 'test',
   PORT: 4000,
   MONGODB_URI: 'mongodb://127.0.0.1:27017/obsidian-test',

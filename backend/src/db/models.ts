@@ -49,6 +49,7 @@ const systemEventSchema = new Schema(
     sessionId: { type: String, required: true, immutable: true },
     projectId: { type: String, required: true, immutable: true },
     runId: { type: String, required: true, immutable: true },
+    baseCommit: { type: String, required: true, immutable: true },
     phase: { type: String, required: true, immutable: true },
     status: { type: String, required: true, immutable: true },
     safeSummary: { type: String, required: true, immutable: true },

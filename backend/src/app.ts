@@ -11,9 +11,18 @@ import { SessionStore } from './auth/session-store.js';
 import { createGithubRouter } from './github/router.js';
 import { createIntakeRouter } from './intake/router.js';
 import type { RepositoryIntakeService } from './intake/service.js';
+import { SnapshotHandleStore } from './intake/handle-store.js';
+import { createDetectionRouter } from './detection/router.js';
+import { DetectionService, type DetectionEventSink } from './detection/service.js';
 import { securityMiddleware } from './security.js';
 
-export function createApp(config: AppConfig, dependencies: { sessionStore?: SessionStore; intakeService?: RepositoryIntakeService } = {}) {
+export function createApp(config: AppConfig, dependencies: {
+  sessionStore?: SessionStore;
+  intakeService?: RepositoryIntakeService;
+  handleStore?: SnapshotHandleStore;
+  detectionService?: DetectionService;
+  detectionEventSink?: DetectionEventSink;
+} = {}) {
   const app = express();
 
   app.disable('x-powered-by');
@@ -28,7 +37,7 @@ export function createApp(config: AppConfig, dependencies: { sessionStore?: Sess
           return;
         }
 
-        callback(new Error('Origin is not allowed.'));
+        callback(null, false);
       },
       credentials: true,
     }),
@@ -61,8 +70,13 @@ export function createApp(config: AppConfig, dependencies: { sessionStore?: Sess
 
   const sessionStore = dependencies.sessionStore ?? (config.AUTH_SESSION_SECRET ? new SessionStore(config.AUTH_SESSION_SECRET) : undefined);
   app.use('/auth', createAuthRouter(config, undefined, sessionStore));
-  if (sessionStore) app.use('/api/v1/github', createGithubRouter(sessionStore));
-  if (sessionStore) app.use('/api/v1/intake', createIntakeRouter(config, sessionStore, dependencies.intakeService));
+  if (sessionStore) {
+    const handleStore = dependencies.handleStore ?? new SnapshotHandleStore();
+    const detectionService = dependencies.detectionService ?? new DetectionService(config, handleStore, undefined, dependencies.detectionEventSink);
+    app.use('/api/v1/github', createGithubRouter(sessionStore));
+    app.use('/api/v1/intake', createIntakeRouter(config, sessionStore, dependencies.intakeService, handleStore));
+    app.use('/api/v1/intake/detections', createDetectionRouter(config, sessionStore, detectionService));
+  }
 
   app.use((_request, response: Response) => {
     const requestId = response.locals.requestId as string;

@@ -9,6 +9,7 @@ export interface SystemEvent {
   sessionId: string;
   projectId: string;
   runId: string;
+  baseCommit: string;
   phase: string;
   status: EventStatus;
   safeSummary: string;

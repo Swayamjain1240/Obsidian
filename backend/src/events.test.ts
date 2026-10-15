@@ -11,6 +11,7 @@ describe('system events', () => {
       sessionId: 'session-1',
       projectId: 'project-1',
       runId: 'run-1',
+      baseCommit: 'a'.repeat(40),
       phase: 'baseline',
       status: 'passed',
       safeSummary: 'token=hidden-token check passed',
