@@ -123,9 +123,9 @@ The target is a meaningful commit history across the complete project, not artif
 
 ## Status
 
-Part 4 is complete for authenticated snapshot analysis. The repository now includes a GitHub OAuth App boundary, authenticated repository selection, verified branch-commit resolution, bounded archive download, immutable local snapshot storage, safe streaming extraction, immutable extraction manifests, bounded evidence-based multi-language detection, authenticated detection lifecycle routes, explicit stack confirmation/rescan/cancellation, redacted system events, and responsive review-first screens with GSAP/Three.js fallbacks. Completeness checks, baseline testing, repair workers, enhancement workers, and AI provider calls remain future phases.
+Part 5 is complete for authenticated completeness review and scope selection. The repository now includes a GitHub OAuth App boundary, authenticated repository selection, verified branch-commit resolution, bounded archive download, immutable local snapshot storage, safe streaming extraction, immutable extraction manifests, bounded evidence-based multi-language detection, authenticated detection lifecycle routes, explicit stack confirmation/rescan/cancellation, bounded completeness evidence scanning, explicit `FULL` / `EXISTING_ONLY` scope selection, redacted lifecycle events, and responsive review-first screens with GSAP/Three.js fallbacks. Baseline testing, repair workers, enhancement workers, and AI provider calls remain future phases; route-discovery heuristics and durable multi-instance run storage remain deferred.
 
-See the [Part 1 Duck Review](docs/project-enhancer/part-1-duck-review.md), [Part 2 Duck Review](docs/project-enhancer/part-2-duck-review.md), [Part 3 Duck Review](docs/project-enhancer/part-3-duck-review.md), and [Part 4 Duck Review](docs/project-enhancer/part-4-duck-review.md) for evidence, the 25-point reviews, deferred scope, and corrective actions.
+See the [Part 1 Duck Review](docs/project-enhancer/part-1-duck-review.md), [Part 2 Duck Review](docs/project-enhancer/part-2-duck-review.md), [Part 3 Duck Review](docs/project-enhancer/part-3-duck-review.md), [Part 4 Duck Review](docs/project-enhancer/part-4-duck-review.md), and [Part 5 Duck Review](docs/project-enhancer/part-5-duck-review.md) for evidence, the 25-point reviews, deferred scope, and corrective actions.
 
 ## License
 

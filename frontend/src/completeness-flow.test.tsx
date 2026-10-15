@@ -52,6 +52,7 @@ describe('completeness frontend flow', () => {
     render(<MemoryRouter initialEntries={['/project/completeness?detectionRunId=detection-1']}><App /></MemoryRouter>);
     fireEvent.click(await screen.findByRole('button', { name: 'Start completeness review' }));
     await waitFor(() => expect(fetchMock.mock.calls.some((call) => String(call[0]) === '/api/v1/intake/completeness')).toBe(true));
+    await waitFor(() => expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith('/api/v1/intake/completeness/completeness-1'))).toBe(true), { timeout: 3000 });
     await screen.findByRole('heading', { name: 'Review project completeness' });
     fireEvent.click(screen.getByRole('tab', { name: 'Findings' }));
     expect(screen.getByRole('option', { name: /todo-marker/ })).toBeTruthy();
