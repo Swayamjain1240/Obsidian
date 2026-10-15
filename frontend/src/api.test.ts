@@ -10,13 +10,13 @@ describe('frontend intake API', () => {
       'fetch',
       vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ status: { github: 'not_implemented', aiAnalysis: 'not_available' } }),
+        json: async () => ({ status: { github: 'implemented', aiAnalysis: 'not_available' } }),
       }),
     );
 
     const status = await fetchIntakeStatus();
 
-    expect(status.github).toBe('not_implemented');
+    expect(status.github).toBe('implemented');
     expect(status.aiAnalysis).toBe('not_available');
   });
 
