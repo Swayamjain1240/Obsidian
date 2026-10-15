@@ -39,7 +39,7 @@ export function ConfirmationPage() {
 
   if (!runId) return (
       <section className="page-layout empty-page" aria-labelledby="confirmation-title">
-      <span className="eyebrow">Step 3 of 5</span><h1 id="confirmation-title">No detection run selected.</h1>
+       <span className="eyebrow">Step 3 of 6</span><h1 id="confirmation-title">No detection run selected.</h1>
       <p className="muted">Start a scan from an immutable snapshot before reviewing candidates.</p>
       <Link className="primary-button" to="/project/select">Choose a repository</Link>
     </section>
@@ -55,7 +55,7 @@ export function ConfirmationPage() {
 
   return (
     <section ref={contentRef} className="page-layout confirmation-layout" aria-labelledby="confirmation-page-title">
-      <div className="page-intro"><span className="eyebrow">Step 3 of 5 · confirmation</span><h1 id="confirmation-page-title">Review before moving on.</h1></div>
+       <div className="page-intro"><span className="eyebrow">Step 3 of 6 · confirmation</span><h1 id="confirmation-page-title">Review before moving on.</h1></div>
       <div className="confirmation-body">
         {progress ? <DetectionProgress run={run} phase={detection.phase} scanComplete={detection.scanComplete} busy={detection.busy} error={detection.error} onCancel={detection.cancel} onReload={detection.reload} onRescan={detection.rescan} /> : null}
         {run && reviewing ? <ConfirmationPanel run={run} selectedIds={selectedCandidateIds} onToggle={toggle} disabled={detection.busy} /> : null}

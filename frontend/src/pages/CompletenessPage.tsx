@@ -39,7 +39,7 @@ export function CompletenessPage() {
 
   if (!detectionRunId) return (
     <section className="page-layout empty-page" aria-labelledby="completeness-title">
-      <span className="eyebrow">Step 4 of 5</span>
+      <span className="eyebrow">Step 4 of 6</span>
       <h1 id="completeness-title">Confirm the stack first.</h1>
       <p className="muted">Completeness review is available only after stack confirmation on an immutable snapshot.</p>
       <Link className="primary-button" to="/project/select">Choose a repository</Link>
@@ -53,7 +53,7 @@ export function CompletenessPage() {
 
   return (
     <section ref={contentRef} className="page-layout completeness-layout" aria-labelledby="completeness-page-title">
-      <div className="page-intro"><span className="eyebrow">Step 4 of 5 · completeness and scope</span><h1 id="completeness-page-title">Understand what already exists.</h1></div>
+      <div className="page-intro"><span className="eyebrow">Step 4 of 6 · completeness and scope</span><h1 id="completeness-page-title">Understand what already exists.</h1></div>
       {!run ? (
         <section className="panel next-step-panel" aria-labelledby="completeness-start-title">
           <span className="panel-glyph" aria-hidden="true">◌</span>
@@ -71,7 +71,7 @@ export function CompletenessPage() {
             <section className="panel locked-panel" aria-labelledby="scope-saved-title">
               <div className="panel-heading"><span className="locked-icon" aria-hidden="true">✓</span><h2 id="scope-saved-title">Scope selection is saved.</h2></div>
               <p className="muted">{scope === 'FULL' ? 'Complete project first' : 'Enhance existing parts only'} is recorded for the next baseline phase.</p>
-              <span className="status-chip">Baseline · future phase</span>
+               <Link className="primary-button" to={`/project/baseline?completenessRunId=${encodeURIComponent(run.runId)}`} state={{ repository }}>Start baseline checks</Link>
             </section>
           );
           return viewport.compact ? <PanelTabs label="Completeness steps" value={view} onChange={(value) => setView(value as 'review' | 'scope')} tabs={[{ id: 'review', label: 'Review' }, { id: 'scope', label: 'Scope' }]}>{view === 'review' ? reviewPanel : scopePanel}</PanelTabs> : <div className="completeness-columns">{reviewPanel}{scopePanel}</div>;
