@@ -1,206 +1,101 @@
-import { useEffect, useState } from 'react';
-import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import type { ReactNode } from 'react';
+import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 
-import { createRepositorySnapshot, fetchIntakeStatus, fetchRepositories, type IntakeStatus, type RepositorySummary, type SnapshotResult } from './api';
+import { CrystalCanvas } from './components/CrystalCanvas';
+import { useAuthSession, type AuthSessionState } from './hooks/useAuthSession';
+import { ConfirmationPage } from './pages/ConfirmationPage';
+import { DetectionPage } from './pages/DetectionPage';
+import { HealthPage } from './pages/HealthPage';
+import { HomePage } from './pages/HomePage';
+import { RepositoryPage } from './pages/RepositoryPage';
+import { summary } from './components/PagedText';
 
 const phases = [
-  { path: '/home', label: 'Home' },
-  { path: '/project/select', label: 'Repository' },
-  { path: '/project/detect', label: 'Detection' },
-  { path: '/project/confirm', label: 'Confirmation' },
-  { path: '/health', label: 'Health Check' },
+  { path: '/home', label: 'Home', shortLabel: 'Home' },
+  { path: '/project/select', label: 'Repository', shortLabel: '1 · Repository' },
+  { path: '/project/detect', label: 'Detection', shortLabel: '2 · Detection' },
+  { path: '/project/confirm', label: 'Confirmation', shortLabel: '3 · Confirmation' },
+  { path: '/health', label: 'Health · future', shortLabel: 'Health · future' },
 ];
 
-function PhasePage({ title, message }: { title: string; message: string }) {
-  return (
-    <section className="phase-card" aria-labelledby="phase-title">
-      <span className="eyebrow">Part 1 foundation</span>
-      <h1 id="phase-title">{title}</h1>
-      <p>{message}</p>
-      <div className="status-badge" role="status">
-        Not implemented yet
-      </div>
-    </section>
-  );
+function ProtectedRoute({ session, children }: { session: AuthSessionState; children: ReactNode }) {
+  if (session.status === 'loading') {
+    return (
+      <section className="page-layout loading-page" aria-live="polite">
+        <span className="eyebrow">Secure workspace</span>
+        <h1>Checking your session…</h1>
+        <p className="muted">Protected project data is available only after GitHub authorization.</p>
+      </section>
+    );
+  }
+
+  if (session.status !== 'authenticated') return <Navigate replace to="/home" />;
+  return <>{children}</>;
 }
 
-function FoundationStatus() {
-  const [status, setStatus] = useState<IntakeStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchIntakeStatus().then(setStatus).catch(() => setError('Backend status unavailable.'));
-  }, []);
-
-  return (
-    <aside className="foundation-status" aria-label="Foundation status">
-      <strong>Foundation status</strong>
-      {status ? <span>GitHub connection: {status.github}</span> : null}
-      {status ? <span>Repository snapshot: {status.repositorySnapshot}</span> : null}
-      {status ? <span>AI analysis: {status.aiAnalysis}</span> : null}
-      {error ? <span>{error}</span> : null}
-    </aside>
-  );
-}
-
-function HomePage() {
-  return (
-    <section className="phase-card" aria-labelledby="phase-title">
-      <span className="eyebrow">Part 2 · GitHub OAuth App</span>
-      <h1 id="phase-title">Improve your project safely</h1>
-      <p>Sign in with GitHub to select a repository. Obsidian will not fabricate repositories or change your original project.</p>
-      <a className="primary-action" href="/auth/github/start">Continue with GitHub</a>
-      <NavLink className="secondary-action" to="/project/select">Open repository selection</NavLink>
-    </section>
-  );
-}
-
-function RepositoryPage() {
-  const navigate = useNavigate();
-  const [repositories, setRepositories] = useState<RepositorySummary[]>([]);
-  const [page, setPage] = useState(1);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    setLoading(true);
-    fetchRepositories(page)
-      .then((result) => {
-        setRepositories(result.repositories);
-        setError(null);
-      })
-      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Repositories are unavailable.'))
-      .finally(() => setLoading(false));
-  }, [page]);
-
-  return (
-    <section className="phase-card repository-card" aria-labelledby="repository-title">
-      <span className="eyebrow">Repository selection</span>
-      <h1 id="repository-title">Choose a project</h1>
-      {loading ? <p role="status">Loading your authorized repositories…</p> : null}
-      {error ? <p className="inline-error" role="alert">{error}</p> : null}
-      {!loading && !error && repositories.length === 0 ? <p>No repositories were returned for this page.</p> : null}
-      <ul className="repository-list">
-        {repositories.map((repository) => (
-          <li key={repository.id}>
-            <span>
-              <strong>{repository.name}</strong>
-              <small>{repository.language ?? 'Language not detected'} · {repository.private ? 'Private' : 'Public'}</small>
-            </span>
-            <button type="button" onClick={() => navigate('/project/detect', { state: { repository } })}>Select</button>
-          </li>
-        ))}
-      </ul>
-      <div className="pagination" aria-label="Repository pagination">
-        <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1 || loading}>Previous</button>
-        <span>Page {page}</span>
-        <button type="button" onClick={() => setPage((current) => current + 1)} disabled={loading || repositories.length < 5}>Next</button>
-      </div>
-    </section>
-  );
-}
-
-function DetectionPage() {
+function WizardNavigation({ mobile = false }: { mobile?: boolean }) {
   const location = useLocation();
-  const repository = location.state?.repository as RepositorySummary | undefined;
-  const [snapshot, setSnapshot] = useState<SnapshotResult | null>(null);
-  const [status, setStatus] = useState<'idle' | 'creating' | 'error'>('idle');
-  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const currentPath = phases.find((phase) => location.pathname === phase.path)?.path ?? '/home';
 
-  const startSnapshot = async () => {
-    if (!repository) return;
-    setStatus('creating');
-    setError(null);
-    try {
-      const result = await createRepositorySnapshot({
-        owner: repository.full_name.split('/')[0] ?? '',
-        name: repository.name,
-        branch: repository.default_branch,
-      });
-      setSnapshot(result);
-      setStatus('idle');
-    } catch (reason: unknown) {
-      setStatus('error');
-      setError(reason instanceof Error ? reason.message : 'Snapshot could not be created.');
-    }
-  };
+  return mobile ? (
+    <div className="mobile-nav">
+      <label className="sr-only" htmlFor="wizard-step">Wizard step</label>
+      <select id="wizard-step" value={currentPath} onChange={(event) => navigate(event.target.value)}>
+        {phases.map((phase) => <option value={phase.path} key={phase.path}>{phase.shortLabel}</option>)}
+      </select>
+    </div>
+  ) : (
+      <nav className="phase-nav desktop-nav" aria-label="Project phases">
+        <span className="nav-caption">Workspace</span>
+        {phases.map((phase) => (
+          <NavLink
+            className={({ isActive }) => isActive ? 'phase-link active' : 'phase-link'}
+            key={phase.path}
+            to={phase.path}
+          >
+            <span className="phase-index" aria-hidden="true">{phase.path === '/home' ? '•' : phase.label.charAt(0)}</span>
+            {phase.label}
+          </NavLink>
+        ))}
+      </nav>
+  );
+}
 
+function AppShell({ session, onSignOut }: { session: AuthSessionState; onSignOut: () => void }) {
   return (
-    <section className="phase-card" aria-labelledby="phase-title">
-      <span className="eyebrow">Read-only repository intake</span>
-      <h1 id="phase-title">Create a safe snapshot</h1>
-      <p>{repository ? `Selected repository: ${repository.full_name}. No analysis or code execution starts until an immutable snapshot is created.` : 'Select a repository before starting intake.'}</p>
-      {status === 'creating' ? <p role="status">Downloading and hashing the repository archive…</p> : null}
-      {error ? <p className="inline-error" role="alert">{error}</p> : null}
-      {snapshot ? <div className="status-badge" role="status">Snapshot {snapshot.snapshot.snapshotId} · immutable · analysis not started</div> : null}
-      <button className="primary-action" type="button" onClick={startSnapshot} disabled={!repository || status === 'creating' || Boolean(snapshot)}>
-        {snapshot ? 'Snapshot created' : 'Create immutable snapshot'}
-      </button>
-    </section>
+    <div className="app-shell">
+      <CrystalCanvas />
+      <header className="topbar">
+        <NavLink className="brand" to="/home" aria-label="Obsidian home">
+          <span className="brand-mark" aria-hidden="true">O</span>
+          <span>Obsidian</span>
+        </NavLink>
+        <WizardNavigation mobile />
+        <div className="topbar-meta">
+          <span className="safety-label"><span className="safety-dot" aria-hidden="true" />Original project stays safe</span>
+          {session.status === 'authenticated' && session.user ? <span className="topbar-user">{summary(session.user.login, 20)}</span> : null}
+        </div>
+      </header>
+
+      <div className="workspace">
+        <WizardNavigation />
+        <main className="phase-main">
+          <Routes>
+            <Route path="/home" element={<HomePage session={session} onSignOut={onSignOut} />} />
+            <Route path="/project/select" element={<ProtectedRoute session={session}><RepositoryPage /></ProtectedRoute>} />
+            <Route path="/project/detect" element={<ProtectedRoute session={session}><DetectionPage /></ProtectedRoute>} />
+            <Route path="/project/confirm" element={<ProtectedRoute session={session}><ConfirmationPage /></ProtectedRoute>} />
+            <Route path="/health" element={<ProtectedRoute session={session}><HealthPage /></ProtectedRoute>} />
+            <Route path="*" element={<Navigate replace to="/home" />} />
+          </Routes>
+        </main>
+      </div>
+    </div>
   );
 }
 
 export function App() {
-  return (
-    <div className="app-shell">
-      <header className="topbar">
-        <NavLink className="brand" to="/home" aria-label="Obsidian home">
-          <span className="brand-mark">O</span>
-          <span>Obsidian</span>
-        </NavLink>
-        <span className="safety-label">Original project stays safe</span>
-      </header>
-
-      <div className="workspace">
-        <nav className="phase-nav" aria-label="Project phases">
-          {phases.map((phase) => (
-            <NavLink
-              className={({ isActive }) => (isActive ? 'phase-link active' : 'phase-link')}
-              key={phase.path}
-              to={phase.path}
-            >
-              {phase.label}
-            </NavLink>
-          ))}
-        </nav>
-
-        <main className="phase-main">
-          <Routes>
-            <Route
-              path="/home"
-              element={<HomePage />}
-            />
-            <Route
-              path="/project/select"
-              element={<RepositoryPage />}
-            />
-            <Route
-              path="/project/detect"
-              element={<DetectionPage />}
-            />
-            <Route
-              path="/project/confirm"
-              element={
-                <PhasePage
-                  title="Confirm detected technology"
-                  message="Unknown technologies will remain not detected. Obsidian will never guess a language or framework."
-                />
-              }
-            />
-            <Route
-              path="/health"
-              element={
-                <PhasePage
-                  title="Check the existing project"
-                  message="Baseline checks will run before any enhancement. Missing checks will be reported as not available."
-                />
-              }
-            />
-            <Route path="*" element={<Navigate replace to="/home" />} />
-          </Routes>
-        </main>
-        <FoundationStatus />
-      </div>
-    </div>
-  );
+  const { session, signOut } = useAuthSession();
+  return <AppShell session={session} onSignOut={() => void signOut()} />;
 }
