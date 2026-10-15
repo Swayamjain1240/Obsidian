@@ -16,6 +16,8 @@ import { createDetectionRouter } from './detection/router.js';
 import { DetectionService, type DetectionEventSink } from './detection/service.js';
 import { createCompletenessRouter } from './completeness/router.js';
 import { CompletenessService } from './completeness/service.js';
+import { createBaselineRouter } from './baseline/router.js';
+import { BaselineService } from './baseline/service.js';
 import { securityMiddleware } from './security.js';
 
 export function createApp(config: AppConfig, dependencies: {
@@ -25,6 +27,7 @@ export function createApp(config: AppConfig, dependencies: {
   detectionService?: DetectionService;
   detectionEventSink?: DetectionEventSink;
   completenessService?: CompletenessService;
+  baselineService?: BaselineService;
 } = {}) {
   const app = express();
 
@@ -77,10 +80,12 @@ export function createApp(config: AppConfig, dependencies: {
     const handleStore = dependencies.handleStore ?? new SnapshotHandleStore();
     const detectionService = dependencies.detectionService ?? new DetectionService(config, handleStore, undefined, dependencies.detectionEventSink);
     const completenessService = dependencies.completenessService ?? new CompletenessService(config, undefined, dependencies.detectionEventSink);
+    const baselineService = dependencies.baselineService ?? new BaselineService(config, completenessService, undefined, dependencies.detectionEventSink);
     app.use('/api/v1/github', createGithubRouter(sessionStore));
     app.use('/api/v1/intake', createIntakeRouter(config, sessionStore, dependencies.intakeService, handleStore));
     app.use('/api/v1/intake/detections', createDetectionRouter(config, sessionStore, detectionService));
     app.use('/api/v1/intake/completeness', createCompletenessRouter(config, sessionStore, detectionService, completenessService));
+    app.use('/api/v1/intake/baseline', createBaselineRouter(config, sessionStore, baselineService));
   }
 
   app.use((_request, response: Response) => {
