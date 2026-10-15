@@ -10,6 +10,7 @@ describe('intake status', () => {
     expect(status.repositoryDiscovery).toBe('implemented');
     expect(status.repositorySnapshot).toBe('implemented');
     expect(status.stackDetection).toBe('implemented');
+    expect(status.completeness).toBe('implemented');
     expect(status.aiAnalysis).toBe('not_available');
   });
 });
