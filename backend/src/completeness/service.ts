@@ -43,6 +43,12 @@ export class CompletenessServiceError extends Error {
   }
 }
 
+export interface SelectedCompletenessContext {
+  completenessRunId: string;
+  scopeMode: ScopeMode;
+  context: ConfirmedDetectionContext;
+}
+
 interface StoredRun {
   ownerUserId: string;
   sessionId: string;
@@ -126,6 +132,25 @@ export class CompletenessService {
     stored.result.progress = { ...stored.result.progress, stage: 'scope_selected' };
     this.recordEvent(stored, 'SCOPE_MODE_SELECTED', `Scope mode ${scopeMode} was selected. Baseline checks are the next phase.`, false);
     return publicResult(stored.result);
+  }
+
+  public selectedContext(ownerUserId: string, runId: string): SelectedCompletenessContext {
+    const stored = this.ownedRun(ownerUserId, runId);
+    if (stored.result.status !== 'scope_selected' || !stored.result.scopeMode) {
+      throw new CompletenessServiceError('COMPLETENESS_STATE_INVALID', 'Select a baseline scope before starting baseline checks.', 409);
+    }
+    return {
+      completenessRunId: stored.result.runId,
+      scopeMode: stored.result.scopeMode,
+      context: {
+        ...stored.context,
+        snapshot: {
+          ...stored.context.snapshot,
+          repository: { ...stored.context.snapshot.repository },
+        },
+        languageCandidates: [...stored.context.languageCandidates],
+      },
+    };
   }
 
   public cancel(ownerUserId: string, runId: string): CompletenessResult {

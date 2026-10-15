@@ -103,6 +103,10 @@ describe('completeness service', () => {
     expect(selected.status).toBe('scope_selected');
     expect(selected.scopeMode).toBe('EXISTING_ONLY');
     expect(selected.nextPhase).toBe('baseline_testing');
+    const selectedContext = service.selectedContext('7', queued.runId);
+    expect(selectedContext.scopeMode).toBe('EXISTING_ONLY');
+    expect(selectedContext.context.snapshot.snapshotId).toBe(snapshot.snapshotId);
+    expect(selectedContext.context.languageCandidates).toEqual(['TypeScript']);
     expect(events.map((event) => event.eventType)).toContain('SCOPE_MODE_SELECTED');
   });
 
