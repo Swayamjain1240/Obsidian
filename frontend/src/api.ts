@@ -171,6 +171,53 @@ export interface CompletenessResponse {
   requestId: string;
 }
 
+export type BaselineCheckCategory = 'dependencies' | 'build' | 'lint' | 'typecheck' | 'unit' | 'integration' | 'functional' | 'runtime' | 'security';
+export type BaselineCheckStatus = 'queued' | 'running' | 'passed' | 'failed' | 'not_available' | 'skipped' | 'timed_out' | 'cancelled';
+export type BaselineRunStatus = 'queued' | 'planning' | 'running' | 'passed' | 'failed' | 'partial' | 'cancelled';
+
+export interface BaselineEvidenceRef {
+  path?: string;
+  reason: string;
+  kind: 'manifest' | 'configuration' | 'command' | 'result';
+}
+
+export interface BaselineCheckResult {
+  id: string;
+  category: BaselineCheckCategory;
+  label: string;
+  status: BaselineCheckStatus;
+  summary: string;
+  commandLabel: string | null;
+  exitCode: number | null;
+  durationMs: number | null;
+  evidenceRefs: BaselineEvidenceRef[];
+}
+
+export interface BaselineResult {
+  runId: string;
+  completenessRunId: string;
+  snapshotId: string;
+  baseCommit: string;
+  archiveSha256: string;
+  scopeMode: ScopeMode;
+  status: BaselineRunStatus;
+  checks: BaselineCheckResult[];
+  passedCount: number;
+  failedCount: number;
+  notAvailableCount: number;
+  warning: string | null;
+  policyVersion: string;
+  progress: { stage: string; checksCompleted: number; checksTotal: number; passed: number; failed: number; notAvailable: number };
+  createdAt: string;
+  nextPhase?: 'repair_review' | 'enhancement_analysis';
+  error?: { code: string; message: string };
+}
+
+export interface BaselineResponse {
+  run: BaselineResult;
+  requestId: string;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string | null;
@@ -367,12 +414,38 @@ export async function cancelCompleteness(runId: string, signal?: AbortSignal): P
   });
 }
 
+export async function startBaseline(completenessRunId: string, signal?: AbortSignal): Promise<BaselineResponse> {
+  return requestJson<BaselineResponse>('/api/v1/intake/baseline', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ completenessRunId }),
+    signal,
+  });
+}
+
+export async function getBaseline(runId: string, signal?: AbortSignal): Promise<BaselineResponse> {
+  return requestJson<BaselineResponse>(`/api/v1/intake/baseline/${encodeURIComponent(runId)}`, { signal });
+}
+
+export async function cancelBaseline(runId: string, signal?: AbortSignal): Promise<BaselineResponse> {
+  return requestJson<BaselineResponse>(`/api/v1/intake/baseline/${encodeURIComponent(runId)}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+    signal,
+  });
+}
+
 export function isTerminalDetectionStatus(status: DetectionStatus): boolean {
   return status === 'awaiting_confirmation' || status === 'confirmed' || status === 'failed' || status === 'cancelled';
 }
 
 export function isTerminalCompletenessStatus(status: CompletenessRunStatus): boolean {
   return status === 'scope_selected' || status === 'failed' || status === 'cancelled';
+}
+
+export function isTerminalBaselineStatus(status: BaselineRunStatus): boolean {
+  return status === 'passed' || status === 'failed' || status === 'partial' || status === 'cancelled';
 }
 
 function wait(milliseconds: number, signal: AbortSignal): Promise<void> {
@@ -433,6 +506,25 @@ export async function pollCompleteness(
     response = await getCompleteness(runId, options.signal);
     checkAborted(options.signal);
     if (response.run.runId !== runId) throw new Error('The backend returned a different completeness run. Reload this run to continue.');
+    options.onUpdate?.(response.run);
+  }
+  return response;
+}
+
+export async function pollBaseline(
+  runId: string,
+  options: { signal: AbortSignal; intervalMs?: number; onUpdate?: (run: BaselineResult) => void },
+): Promise<BaselineResponse> {
+  const intervalMs = options.intervalMs ?? 750;
+  let response = await getBaseline(runId, options.signal);
+  checkAborted(options.signal);
+  if (response.run.runId !== runId) throw new Error('The backend returned a different baseline run. Reload this run to continue.');
+  options.onUpdate?.(response.run);
+  while (!isTerminalBaselineStatus(response.run.status)) {
+    await wait(intervalMs, options.signal);
+    response = await getBaseline(runId, options.signal);
+    checkAborted(options.signal);
+    if (response.run.runId !== runId) throw new Error('The backend returned a different baseline run. Reload this run to continue.');
     options.onUpdate?.(response.run);
   }
   return response;
