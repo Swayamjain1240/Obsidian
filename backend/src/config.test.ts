@@ -17,6 +17,8 @@ describe('loadConfig', () => {
     expect(config.NODE_ENV).toBe('test');
     expect(config.PORT).toBe(4000);
     expect(config.AI_PROVIDER).toBe('disabled');
+    expect(config.BASELINE_MAX_CHECKS).toBe(12);
+    expect(config.BASELINE_MAX_OUTPUT_BYTES).toBe(65_536);
   });
 
   it('rejects missing required configuration', () => {

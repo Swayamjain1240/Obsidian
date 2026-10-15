@@ -35,6 +35,10 @@ const configSchema = z.object({
   COMPLETENESS_MAX_BYTES: z.coerce.number().int().positive().max(50_000_000).default(8_388_608),
   COMPLETENESS_MAX_FINDINGS: z.coerce.number().int().positive().max(10_000).default(500),
   COMPLETENESS_TIMEOUT_MS: z.coerce.number().int().positive().max(300_000).default(30_000),
+  BASELINE_MAX_CHECKS: z.coerce.number().int().positive().max(100).default(12),
+  BASELINE_CHECK_TIMEOUT_MS: z.coerce.number().int().positive().max(900_000).default(120_000),
+  BASELINE_MAX_TOTAL_TIMEOUT_MS: z.coerce.number().int().positive().max(3_600_000).default(600_000),
+  BASELINE_MAX_OUTPUT_BYTES: z.coerce.number().int().positive().max(1_000_000).default(65_536),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;
