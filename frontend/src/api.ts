@@ -3,6 +3,7 @@ export interface IntakeStatus {
   repositoryDiscovery: 'implemented';
   repositorySnapshot: 'implemented';
   stackDetection: 'implemented';
+  completeness: 'implemented';
   baselineChecks: 'not_implemented';
   aiAnalysis: 'not_available';
 }
@@ -109,6 +110,64 @@ export interface DetectionResult {
 
 export interface DetectionResponse {
   run: DetectionResult;
+  requestId: string;
+}
+
+export type CompletenessRunStatus = 'queued' | 'extracting' | 'scanning' | 'awaiting_scope' | 'scope_selected' | 'failed' | 'cancelled';
+export type CompletenessAreaStatus = 'working' | 'working_with_issues' | 'broken' | 'partial' | 'placeholder' | 'not_implemented' | 'not_available';
+export type ScopeMode = 'FULL' | 'EXISTING_ONLY';
+
+export interface CompletenessEvidenceRef {
+  path: string;
+  line?: number;
+  reason: string;
+  kind: 'marker' | 'empty-file' | 'configuration' | 'import' | 'metadata';
+}
+
+export interface CompletenessFinding {
+  id: string;
+  kind: string;
+  areaId: string;
+  status: CompletenessAreaStatus;
+  summary: string;
+  evidenceRefs: CompletenessEvidenceRef[];
+  affectedPaths: string[];
+}
+
+export interface CompletenessArea {
+  id: string;
+  name: string;
+  status: CompletenessAreaStatus;
+  summary: string;
+  findingIds: string[];
+  affectedPaths: string[];
+}
+
+export interface CompletenessResult {
+  runId: string;
+  detectionRunId: string;
+  snapshotId: string;
+  baseCommit: string;
+  archiveSha256: string;
+  status: CompletenessRunStatus;
+  projectStatus: CompletenessAreaStatus | null;
+  areas: CompletenessArea[];
+  findings: CompletenessFinding[];
+  fileCount: number;
+  scannedFileCount: number;
+  scannedBytes: number;
+  limited: boolean;
+  warning: string | null;
+  policyVersion: string;
+  progress: { stage: string; files: number; bytes: number; findings: number };
+  createdAt: string;
+  scopeMode?: ScopeMode;
+  nextPhase?: 'baseline_testing';
+  error?: { code: string; message: string };
+}
+
+export interface CompletenessResponse {
+  run: CompletenessResult;
   requestId: string;
 }
 
@@ -277,8 +336,43 @@ export async function cancelDetection(runId: string, signal?: AbortSignal): Prom
   });
 }
 
+export async function startCompleteness(detectionRunId: string, signal?: AbortSignal): Promise<CompletenessResponse> {
+  return requestJson<CompletenessResponse>('/api/v1/intake/completeness', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ detectionRunId }),
+    signal,
+  });
+}
+
+export async function getCompleteness(runId: string, signal?: AbortSignal): Promise<CompletenessResponse> {
+  return requestJson<CompletenessResponse>(`/api/v1/intake/completeness/${encodeURIComponent(runId)}`, { signal });
+}
+
+export async function selectCompletenessScope(runId: string, mode: ScopeMode, signal?: AbortSignal): Promise<CompletenessResponse> {
+  return requestJson<CompletenessResponse>(`/api/v1/intake/completeness/${encodeURIComponent(runId)}/scope`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+    signal,
+  });
+}
+
+export async function cancelCompleteness(runId: string, signal?: AbortSignal): Promise<CompletenessResponse> {
+  return requestJson<CompletenessResponse>(`/api/v1/intake/completeness/${encodeURIComponent(runId)}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+    signal,
+  });
+}
+
 export function isTerminalDetectionStatus(status: DetectionStatus): boolean {
   return status === 'awaiting_confirmation' || status === 'confirmed' || status === 'failed' || status === 'cancelled';
+}
+
+export function isTerminalCompletenessStatus(status: CompletenessRunStatus): boolean {
+  return status === 'scope_selected' || status === 'failed' || status === 'cancelled';
 }
 
 function wait(milliseconds: number, signal: AbortSignal): Promise<void> {
@@ -322,5 +416,24 @@ export async function pollDetection(
     options.onUpdate?.(response.run);
   }
 
+  return response;
+}
+
+export async function pollCompleteness(
+  runId: string,
+  options: { signal: AbortSignal; intervalMs?: number; onUpdate?: (run: CompletenessResult) => void },
+): Promise<CompletenessResponse> {
+  const intervalMs = options.intervalMs ?? 750;
+  let response = await getCompleteness(runId, options.signal);
+  checkAborted(options.signal);
+  if (response.run.runId !== runId) throw new Error('The backend returned a different completeness run. Reload this run to continue.');
+  options.onUpdate?.(response.run);
+  while (!isTerminalCompletenessStatus(response.run.status) && response.run.status !== 'awaiting_scope') {
+    await wait(intervalMs, options.signal);
+    response = await getCompleteness(runId, options.signal);
+    checkAborted(options.signal);
+    if (response.run.runId !== runId) throw new Error('The backend returned a different completeness run. Reload this run to continue.');
+    options.onUpdate?.(response.run);
+  }
   return response;
 }
