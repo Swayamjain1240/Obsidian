@@ -32,6 +32,16 @@ export interface DetectionEventSink {
   (event: SystemEvent): void | Promise<void>;
 }
 
+export interface ConfirmedDetectionContext {
+  detectionRunId: string;
+  ownerUserId: string;
+  sessionId: string;
+  snapshot: SnapshotRecord;
+  baseCommit: string;
+  archiveSha256: string;
+  languageCandidates: string[];
+}
+
 export class DetectionServiceError extends Error {
   public constructor(
     public readonly code: 'SNAPSHOT_NOT_FOUND' | 'DETECTION_NOT_FOUND' | 'DETECTION_STATE_INVALID',
@@ -136,6 +146,22 @@ export class DetectionService {
 
   public get(ownerUserId: string, runId: string): DetectionResult {
     return publicResult(this.ownedRun(ownerUserId, runId).result);
+  }
+
+  public confirmedContext(ownerUserId: string, runId: string): ConfirmedDetectionContext {
+    const stored = this.ownedRun(ownerUserId, runId);
+    if (stored.result.status !== 'confirmed' || stored.lifecycleState !== 'stack_confirmed') {
+      throw new DetectionServiceError('DETECTION_STATE_INVALID', 'Confirm the detected stack before starting completeness review.', 409);
+    }
+    return {
+      detectionRunId: stored.result.runId,
+      ownerUserId: stored.ownerUserId,
+      sessionId: stored.sessionId,
+      snapshot: stored.snapshot,
+      baseCommit: stored.result.baseCommit,
+      archiveSha256: stored.result.archiveSha256,
+      languageCandidates: [...new Set(stored.result.candidates.map((candidate) => candidate.language).filter((language): language is string => language !== null))],
+    };
   }
 
   public confirm(ownerUserId: string, runId: string, candidateIds: string[], notDetected: boolean): DetectionResult {

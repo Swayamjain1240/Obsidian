@@ -7,6 +7,7 @@ export type SessionState =
   | 'stack_confirmed'
   | 'completeness_review'
   | 'awaiting_scope'
+  | 'scope_selected'
   | 'baseline_testing'
   | 'repair_required'
   | 'baseline_healthy'
@@ -27,7 +28,8 @@ const allowedTransitions: Record<SessionState, readonly SessionState[]> = {
   awaiting_stack_confirmation: ['detecting', 'stack_confirmed', 'cancelled'],
   stack_confirmed: ['completeness_review', 'cancelled'],
   completeness_review: ['awaiting_scope', 'cancelled'],
-  awaiting_scope: ['baseline_testing', 'cancelled'],
+  awaiting_scope: ['scope_selected', 'cancelled'],
+  scope_selected: ['baseline_testing', 'cancelled'],
   baseline_testing: ['repair_required', 'baseline_healthy', 'paused', 'cancelled'],
   repair_required: ['repair_approval', 'paused', 'cancelled'],
   repair_approval: ['repair_validating', 'paused', 'cancelled'],
