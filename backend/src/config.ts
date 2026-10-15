@@ -30,6 +30,11 @@ const configSchema = z.object({
   DETECTION_MAX_EVIDENCE_PATHS: z.coerce.number().int().positive().max(1_000).default(100),
   DETECTION_MIN_VISIBLE_MS: z.coerce.number().int().min(0).max(60_000).default(5_000),
   DETECTION_POLL_INTERVAL_MS: z.coerce.number().int().positive().max(10_000).default(500),
+  COMPLETENESS_MAX_FILE_BYTES: z.coerce.number().int().positive().max(10_000_000).default(262_144),
+  COMPLETENESS_MAX_FILES: z.coerce.number().int().positive().max(100_000).default(2_000),
+  COMPLETENESS_MAX_BYTES: z.coerce.number().int().positive().max(50_000_000).default(8_388_608),
+  COMPLETENESS_MAX_FINDINGS: z.coerce.number().int().positive().max(10_000).default(500),
+  COMPLETENESS_TIMEOUT_MS: z.coerce.number().int().positive().max(300_000).default(30_000),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

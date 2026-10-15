@@ -34,7 +34,7 @@ export interface ScanResult {
   policyVersion: string;
 }
 
-interface ManifestFile { path: string; bytes: number; sha256: string }
+export interface ManifestFile { path: string; bytes: number; sha256: string }
 interface VerifiedManifest { entry: ManifestFile; facts: ParsedManifest }
 interface VerifiedSource { entry: ManifestFile; rule: DetectionAdapterRule }
 interface MutableCandidate {
@@ -74,7 +74,7 @@ function isSafeManifestPath(value: unknown): value is string {
     && !component.endsWith('.') && !component.endsWith(' ') && !/[<>:"|?*\u0000-\u001f]/.test(component) && !WINDOWS_RESERVED_NAME.test(component));
 }
 
-function ignoredPath(pathname: string): boolean {
+export function ignoredPath(pathname: string): boolean {
   const parts = pathname.toLowerCase().split('/');
   const name = parts.at(-1)!;
   return parts.slice(0, -1).some((part) => IGNORED_DIRECTORIES.has(part) || part.startsWith('.env'))
@@ -92,7 +92,7 @@ async function assertDirectory(directory: string): Promise<void> {
   if (!(await lstat(directory)).isDirectory()) throw new Error('Detection workspace contains a link or non-directory ancestor.');
 }
 
-async function safeFilePath(workspacePath: string, pathname: string): Promise<string> {
+export async function safeFilePath(workspacePath: string, pathname: string): Promise<string> {
   await assertDirectory(workspacePath);
   const parts = pathname.split('/');
   let directory = workspacePath;
@@ -100,7 +100,7 @@ async function safeFilePath(workspacePath: string, pathname: string): Promise<st
   return path.join(directory, parts.at(-1)!);
 }
 
-async function readVerifiedFile(filePath: string, maxBytes: number, check: () => void, signal: AbortSignal, expected?: ManifestFile | { sha256: string }): Promise<Buffer> {
+export async function readVerifiedFile(filePath: string, maxBytes: number, check: () => void, signal: AbortSignal, expected?: ManifestFile | { sha256: string }): Promise<Buffer> {
   check();
   const metadata = await lstat(filePath);
   if (!metadata.isFile() || metadata.nlink !== 1) throw new Error('Detection evidence is not a regular file or contains a link.');
@@ -132,7 +132,7 @@ async function readVerifiedFile(filePath: string, maxBytes: number, check: () =>
   } finally { await handle.close(); }
 }
 
-async function readFileManifest(record: ExtractionRecord, check: () => void, signal: AbortSignal): Promise<ManifestFile[]> {
+export async function readFileManifest(record: ExtractionRecord, check: () => void, signal: AbortSignal): Promise<ManifestFile[]> {
   if (record.status !== 'completed' || typeof record.workspacePath !== 'string' || typeof record.manifestPath !== 'string'
     || !isHash(record.fileManifestSha256) || !isHash(record.archiveSha256) || record.extractionPolicyVersion !== extractionPolicyVersion
     || !isCount(record.extractedFileCount) || record.extractedFileCount > MANIFEST_MAX_FILES || !isCount(record.extractedBytes)) {
