@@ -46,6 +46,7 @@ describe('bounded completeness scanner', () => {
     const fixture = await makeExtraction({
       'package.json': '{"name":"app"}',
       'src/index.ts': `// TODO: wire the missing route\nimport { missing } from './missing';\nconst token = "${secret}";`,
+      'src/navigation.tsx': '<a href="/missing-settings">Settings</a>',
       'src/empty.ts': '',
       'app.py': 'print("partial")',
       'README.md': 'Coming soon',
@@ -67,11 +68,33 @@ describe('bounded completeness scanner', () => {
       expect(kinds).toContain('empty-file');
       expect(kinds).toContain('placeholder-marker');
       expect(kinds).toContain('missing-configuration');
+      expect(kinds).toContain('missing-route');
       expect(result.areas.find((area) => area.id === 'tests')?.status).toBe('not_available');
       expect(result.projectStatus).toBe('broken');
       expect(JSON.stringify(result)).not.toContain(secret);
       expect(JSON.stringify(result)).not.toContain('node_modules');
       expect(result.findings.every((finding) => finding.evidenceRefs.every((ref) => ref.line === undefined || ref.line > 0))).toBe(true);
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it('reports an unregistered static route reference without inferring dynamic routes', async () => {
+    const fixture = await makeExtraction({
+      'src/App.tsx': '<Route path="/home" element={<Home />} />\n<Link to="/missing">Missing</Link>\n<Link to="/home">Home</Link>',
+    });
+    try {
+      const result = await scanCompleteness(fixture.extraction, {
+        maxFileBytes: 4096,
+        maxFiles: 20,
+        maxBytes: 20_000,
+        maxFindings: 50,
+        timeoutMs: 5_000,
+      });
+      const routeFindings = result.findings.filter((finding) => finding.kind === 'missing-route');
+      expect(routeFindings).toHaveLength(1);
+      expect(routeFindings[0].evidenceRefs[0].reason).toContain('/missing');
+      expect(routeFindings[0].evidenceRefs[0].kind).toBe('route');
     } finally {
       await rm(fixture.root, { recursive: true, force: true });
     }

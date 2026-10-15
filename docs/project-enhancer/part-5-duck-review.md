@@ -17,7 +17,7 @@ This document records the requested review against the four control documents. T
 
 ## Scope reviewed
 
-Part 5 adds a bounded completeness scanner that runs only after authenticated stack confirmation, returns evidence references instead of source text, and requires an explicit scope choice before baseline testing. It adds lifecycle transitions, authenticated owner-bound routes, redacted completeness events, frontend polling and failure handling, responsive review/findings/scope screens, and the `FULL` / `EXISTING_ONLY` gate.
+Part 5 adds a bounded completeness scanner that runs only after authenticated stack confirmation, returns evidence references instead of source text, and requires an explicit scope choice before baseline testing. It adds lifecycle transitions, authenticated owner-bound routes, redacted completeness events, frontend polling and failure handling, responsive review/findings/scope screens, conservative static route-reference checks, and the `FULL` / `EXISTING_ONLY` gate.
 
 Part 5 does **not** claim to execute repository code, discover every semantic route, run build/test/runtime/security commands, repair defects, enhance code, call an AI provider, create a branch, or create a pull request.
 
@@ -109,7 +109,7 @@ Results:
 | 20 | Aligned | Ten meaningful Part 5 commits follow the required test → inspect diff → commit → push cadence. |
 | 21 | Aligned | Safety controls cover confirmed-stack gating, immutable snapshots, verified reads, limits, ownership, cancellation, and scope selection throughout the flow. |
 | 22 | Aligned | The GitHub provider, purpose, credential boundary, and backend/frontend locations are declared above. |
-| 23 | Aligned | Scanner heuristics, lifecycle transitions, authenticated routes, API contracts, polling, failure states, scope actions, and responsive screens are tested. |
+| 23 | Aligned | Scanner heuristics, including conservative static route references, lifecycle transitions, authenticated routes, API contracts, polling, failure states, scope actions, and responsive screens are tested. |
 | 24 | Aligned | README status and this review describe the implemented Part 5 behavior and deferred phases. |
 | 25 | Aligned | Completeness and confirmation screens use tabs, bounded detail pagers, and mobile one-panel navigation; Playwright verifies desktop, tablet, and mobile dimensions without clipping or overflow. |
 
@@ -128,14 +128,14 @@ Results:
 
 ## Off-track items and missing controls
 
-- There is no dedicated route-discovery graph or semantic missing-route detector yet. The scanner reports evidence-based markers and structural issues, but it does not infer that every intended route exists.
+- Route checks are intentionally conservative: they compare static route references with static declarations and do not claim to discover every semantic route or framework convention.
 - Missing tests are currently represented as a `not_available` tests area when no conventional test paths are found; baseline orchestration will later distinguish unavailable commands from failed execution.
 - The implementation uses in-memory runs and event arrays, so restart recovery and multi-instance coordination are not yet available.
 - The Duck review trigger is recorded in this review artifact; durable `DUCK_REVIEW_REQUESTED` / `DUCK_REVIEW_COMPLETED` persistence remains part of the later durable event integration.
 
 ## Unresolved decisions
 
-1. Define the adapter-specific route and feature evidence contract before adding missing-route detection, so the scanner does not turn absent conventions into false findings.
+1. Define the adapter-specific route and feature evidence contract before broadening route detection, so the scanner does not turn absent conventions into false findings.
 2. Decide how baseline workers report available, skipped, failed, and not-available checks for each confirmed stack.
 3. Replace in-memory completeness runs/events with durable, access-controlled storage and retention rules.
 4. Decide whether `EXISTING_ONLY` scope should emit one exclusion event per area when baseline orchestration is implemented.

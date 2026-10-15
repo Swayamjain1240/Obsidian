@@ -15,6 +15,7 @@ export type FindingKind =
   | 'placeholder-marker'
   | 'dummy-data'
   | 'unimplemented-marker'
+  | 'missing-route'
   | 'broken-import'
   | 'missing-configuration'
   | 'missing-tests';
@@ -34,7 +35,7 @@ export interface CompletenessEvidenceRef {
   path: string;
   line?: number;
   reason: string;
-  kind: 'marker' | 'empty-file' | 'configuration' | 'import' | 'metadata';
+  kind: 'marker' | 'empty-file' | 'configuration' | 'import' | 'route' | 'metadata';
 }
 
 export interface CompletenessFinding {

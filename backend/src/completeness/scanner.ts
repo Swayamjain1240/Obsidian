@@ -128,6 +128,7 @@ function areaName(id: string): string {
     implementation: 'Implementation',
     configuration: 'Configuration',
     imports: 'Imports',
+    routes: 'Routes',
     tests: 'Tests',
     documentation: 'Documentation',
     data: 'Data and placeholders',
@@ -136,6 +137,7 @@ function areaName(id: string): string {
 
 function statusForMarker(kind: FindingKind, pathname: string): AreaStatus {
   if (kind === 'broken-import') return 'broken';
+  if (kind === 'missing-route') return 'not_implemented';
   if (kind === 'missing-configuration') return 'partial';
   if (kind === 'unimplemented-marker') return 'not_implemented';
   if (kind === 'empty-file') return isCodePath(pathname) ? 'not_implemented' : 'placeholder';
@@ -200,6 +202,8 @@ export async function scanCompleteness(
     const pathSet = new Set(relevant.map((entry) => entry.path));
     const basenames = new Set(relevant.map((entry) => entry.path.slice(entry.path.lastIndexOf('/') + 1).toLowerCase()));
     const areasWithEvidence = new Set<string>();
+    const declaredRoutes = new Set<string>();
+    const routeReferences: Array<{ path: string; source: string; line: number }> = [];
     let scannedFileCount = 0;
     let scannedBytes = 0;
     let limited = false;
@@ -253,6 +257,12 @@ export async function scanCompleteness(
           areasWithEvidence.add('data');
         }
         if (isCodePath(entry.path)) {
+          for (const match of line.matchAll(/(?:<Route\s+[^>]*\bpath\s*=|(?:router|app)\.(?:get|post|put|patch|delete)\s*\(|(?:route|path)\s*:\s*)["'](\/[A-Za-z0-9_./:{}*-]*)["']/g)) {
+            declaredRoutes.add(match[1]);
+          }
+          for (const match of line.matchAll(/(?:\b(?:to|href)\s*=|\bnavigate\s*\(|\bredirect\s*\()\s*["'](\/[A-Za-z0-9_./:{}*-]*)["']/g)) {
+            routeReferences.push({ path: match[1], source: entry.path, line: lineNumber });
+          }
           const importMatch = /\b(?:from|import|require\s*\()\s*["'](\.{1,2}\/[^"']+)["']/g;
           for (const match of line.matchAll(importMatch)) {
             const target = match[1];
@@ -265,6 +275,20 @@ export async function scanCompleteness(
         }
       }
       options.onProgress?.('scanning', { files: scannedFileCount, bytes: scannedBytes, findings: findings.length });
+    }
+
+    for (const reference of routeReferences) {
+      check();
+      if (declaredRoutes.has(reference.path)) continue;
+      addFinding({
+        kind: 'missing-route',
+        areaId: 'routes',
+        status: 'not_implemented',
+        summary: 'A route reference has no matching route declaration in the immutable snapshot.',
+        evidenceRefs: [{ path: reference.source, line: reference.line, reason: `route reference ${reference.path} has no matching declaration`, kind: 'route' }],
+        affectedPaths: [reference.source],
+      }, `${reference.source}:${reference.path}`, reference.line);
+      areasWithEvidence.add('routes');
     }
 
     const candidates = [...new Set(options.languageCandidates ?? [])];
@@ -285,7 +309,7 @@ export async function scanCompleteness(
 
     const hasTests = relevant.some((entry) => TEST_PATH.test(entry.path));
     const areas: CompletenessArea[] = [];
-    const areaIds = ['implementation', 'configuration', 'imports', 'tests', 'documentation', 'data'];
+    const areaIds = ['implementation', 'configuration', 'imports', 'routes', 'tests', 'documentation', 'data'];
     for (const id of areaIds) {
       const areaFindings = findings.filter((finding) => finding.areaId === id);
       let status: AreaStatus = 'working';
