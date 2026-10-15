@@ -13,7 +13,7 @@ describe('GitHub authorization URL', () => {
           scopes: ['read:user', 'repo'],
           sessionSecret: 'a'.repeat(32),
         },
-        { state: 'state', codeVerifier: 'verifier', codeChallenge: 'challenge' },
+        { state: 'state', codeVerifier: 'verifier', browserBinding: 'browser', codeChallenge: 'challenge' },
       ),
     );
 

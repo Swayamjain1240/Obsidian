@@ -3,12 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { getIntakeStatus } from './intake-status.js';
 
 describe('intake status', () => {
-  it('does not fabricate GitHub or analysis capability', () => {
+  it('reports only the capabilities implemented by the current flow', () => {
     const status = getIntakeStatus();
 
-    expect(status.github).toBe('not_implemented');
-    expect(status.repositoryDiscovery).toBe('not_implemented');
+    expect(status.github).toBe('implemented');
+    expect(status.repositoryDiscovery).toBe('implemented');
     expect(status.repositorySnapshot).toBe('implemented');
+    expect(status.stackDetection).toBe('implemented');
     expect(status.aiAnalysis).toBe('not_available');
   });
 });

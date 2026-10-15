@@ -7,6 +7,8 @@ import { createGithubAuthorizationUrl } from './oauth-url.js';
 import { OAuthStateStore } from './oauth-state.js';
 import { GithubApiClient } from '../github/client.js';
 import { SessionStore } from './session-store.js';
+import { getCookie } from './session-middleware.js';
+import { requireSameOrigin } from '../security.js';
 
 function queryString(request: Request, key: string): string | null {
   const value = request.query[key];
@@ -24,6 +26,11 @@ export function createAuthRouter(
     try {
       const oauthConfig = getGithubOAuthConfig(config);
       const challenge = stateStore.create();
+      const secure = config.NODE_ENV === 'production' ? '; Secure' : '';
+      response.append(
+        'Set-Cookie',
+        `obsidian_oauth_binding=${encodeURIComponent(challenge.browserBinding)}; Max-Age=600; Path=/auth/github; HttpOnly; SameSite=Lax${secure}`,
+      );
       response.redirect(createGithubAuthorizationUrl(oauthConfig, challenge));
     } catch {
       response.status(503).json(
@@ -40,7 +47,7 @@ export function createAuthRouter(
       const state = queryString(request, 'state');
       if (!code || !state) throw new Error('GitHub callback is missing code or state.');
 
-      const stateRecord = stateStore.consume(state);
+      const stateRecord = stateStore.consume(state, getCookie(request, 'obsidian_oauth_binding'));
       if (!stateRecord) throw new Error('GitHub OAuth state is invalid or expired.');
 
       const client = await GithubApiClient.exchangeCode({
@@ -62,12 +69,34 @@ export function createAuthRouter(
         'Set-Cookie',
         `obsidian_session=${signedSession}; Max-Age=28800; Path=/; HttpOnly; SameSite=Lax${secure}`,
       );
-      response.redirect('/home');
+      response.append(
+        'Set-Cookie',
+        `obsidian_oauth_binding=; Max-Age=0; Path=/auth/github; HttpOnly; SameSite=Lax${secure}`,
+      );
+      response.redirect(`${config.FRONTEND_ORIGIN}/home`);
     } catch {
       response.status(400).json(
         errorBody('AUTH_CALLBACK_FAILED', 'GitHub sign-in could not be completed.', response.locals.requestId as string),
       );
     }
+  });
+
+  router.get('/me', (request, response) => {
+    const signedSession = getCookie(request, 'obsidian_session');
+    const session = signedSession && sessionStore ? sessionStore.get(signedSession) : null;
+    response.json({
+      user: session ? { id: session.githubUserId, login: session.githubLogin } : null,
+      configured: Boolean(config.GITHUB_CLIENT_ID && config.GITHUB_CLIENT_SECRET && config.GITHUB_CALLBACK_URL && config.AUTH_SESSION_SECRET),
+      requestId: response.locals.requestId,
+    });
+  });
+
+  router.post('/logout', requireSameOrigin(config.FRONTEND_ORIGIN), (request, response) => {
+    const signedSession = getCookie(request, 'obsidian_session');
+    if (signedSession && sessionStore) sessionStore.delete(signedSession);
+    const secure = config.NODE_ENV === 'production' ? '; Secure' : '';
+    response.append('Set-Cookie', `obsidian_session=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax${secure}`);
+    response.status(204).send();
   });
 
   return router;

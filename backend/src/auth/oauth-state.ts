@@ -1,8 +1,9 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
-interface OAuthStateRecord {
+export interface OAuthStateRecord {
   state: string;
   codeVerifier: string;
+  browserBinding: string;
   expiresAt: number;
 }
 
@@ -10,6 +11,7 @@ export interface OAuthChallenge {
   state: string;
   codeVerifier: string;
   codeChallenge: string;
+  browserBinding: string;
 }
 
 export class OAuthStateStore {
@@ -20,17 +22,18 @@ export class OAuthStateStore {
   create(now = Date.now()): OAuthChallenge {
     const state = randomBytes(32).toString('base64url');
     const codeVerifier = randomBytes(48).toString('base64url');
+    const browserBinding = randomBytes(32).toString('base64url');
     const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
 
-    this.records.set(state, { state, codeVerifier, expiresAt: now + this.ttlMs });
-    return { state, codeVerifier, codeChallenge };
+    this.records.set(state, { state, codeVerifier, browserBinding, expiresAt: now + this.ttlMs });
+    return { state, codeVerifier, browserBinding, codeChallenge };
   }
 
-  consume(state: string, now = Date.now()): OAuthStateRecord | null {
+  consume(state: string, browserBinding: string | null, now = Date.now()): OAuthStateRecord | null {
     const record = this.records.get(state);
     this.records.delete(state);
 
-    if (!record || record.expiresAt < now) {
+    if (!record || record.expiresAt < now || browserBinding === null || !this.matches(record.browserBinding, browserBinding)) {
       return null;
     }
 
