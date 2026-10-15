@@ -8,6 +8,8 @@ import { errorBody } from '../http/response.js';
 import { GithubApiClient } from '../github/client.js';
 import { RepositoryIntakeService } from './service.js';
 import { SnapshotStore } from './snapshot-store.js';
+import { requireSameOrigin } from '../security.js';
+import { SnapshotHandleStore } from './handle-store.js';
 
 const repositorySchema = z.object({
   owner: z.string().regex(/^[A-Za-z0-9_.-]+$/).max(100),
@@ -15,10 +17,16 @@ const repositorySchema = z.object({
   branch: z.string().regex(/^[A-Za-z0-9_.\/-]+$/).max(200),
 });
 
-export function createIntakeRouter(config: AppConfig, sessionStore: SessionStore, intakeService?: RepositoryIntakeService) {
+export function createIntakeRouter(
+  config: AppConfig,
+  sessionStore: SessionStore,
+  intakeService?: RepositoryIntakeService,
+  handleStore = new SnapshotHandleStore(),
+) {
   const router = Router();
   const intake = intakeService ?? new RepositoryIntakeService(new SnapshotStore(config.SNAPSHOT_ROOT, config.SNAPSHOT_MAX_BYTES));
   router.use(requireGithubSession(sessionStore));
+  router.use(requireSameOrigin(config.FRONTEND_ORIGIN));
 
   router.post('/snapshot', async (request, response) => {
     const parsed = repositorySchema.safeParse(request.body);
@@ -30,6 +38,8 @@ export function createIntakeRouter(config: AppConfig, sessionStore: SessionStore
     try {
       const session = response.locals.githubSession as { accessToken: string };
       const result = await intake.createSnapshot(new GithubApiClient(session.accessToken), parsed.data);
+      const userId = String((response.locals.githubSession as { githubUserId: number }).githubUserId);
+      const snapshotHandle = handleStore.create(userId, result.snapshot);
       response.status(201).json({
         intake: {
           intakeId: result.intakeId,
@@ -46,6 +56,7 @@ export function createIntakeRouter(config: AppConfig, sessionStore: SessionStore
               commitSha: result.snapshot.repository.commitSha,
             },
           },
+          snapshotHandle,
           analysisStatus: result.analysisStatus,
         },
         requestId: response.locals.requestId,

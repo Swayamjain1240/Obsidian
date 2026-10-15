@@ -5,12 +5,13 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../app.js';
-import type { AppConfig } from '../config.js';
+import { loadConfig, type AppConfig } from '../config.js';
 import { SessionStore } from '../auth/session-store.js';
 import { RepositoryIntakeService } from './service.js';
 import { SnapshotStore } from './snapshot-store.js';
 
 const config: AppConfig = {
+  ...loadConfig({ NODE_ENV: 'test', MONGODB_URI: 'mongodb://localhost/obsidian-test', FRONTEND_ORIGIN: 'http://localhost:5173' }),
   NODE_ENV: 'test', PORT: 4000, MONGODB_URI: 'mongodb://127.0.0.1:27017/obsidian-test',
   FRONTEND_ORIGIN: 'http://localhost:5173', RATE_LIMIT_WINDOW_MS: 900_000, RATE_LIMIT_MAX_REQUESTS: 100,
   AI_PROVIDER: 'disabled', AI_PROVIDER_TIMEOUT_MS: 10_000, GITHUB_OAUTH_SCOPES: 'read:user,repo',
@@ -55,6 +56,7 @@ describe('snapshot intake route', () => {
       expect(response.body.intake.snapshot.immutable).toBe(true);
       expect(response.body.intake.snapshot.repository.commitSha).toBe('c'.repeat(40));
       expect(response.body.intake.snapshot.archivePath).toBeUndefined();
+      expect(response.body.intake.snapshotHandle).toMatch(/^[A-Za-z0-9_-]{32,}$/);
     } finally {
       vi.unstubAllGlobals();
       await rm(root, { recursive: true, force: true });
