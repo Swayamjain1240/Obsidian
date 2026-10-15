@@ -14,6 +14,12 @@ describe('session lifecycle', () => {
     expect(transition('scope_selected', 'baseline_testing')).toBe('baseline_testing');
   });
 
+  it('keeps baseline failures and healthy results on separate guarded paths', () => {
+    expect(transition('baseline_testing', 'repair_required')).toBe('repair_required');
+    expect(transition('baseline_testing', 'baseline_healthy')).toBe('baseline_healthy');
+    expect(canTransition('baseline_healthy', 'repair_required')).toBe(false);
+  });
+
   it('rejects invalid jumps', () => {
     expect(() => transition('created', 'baseline_healthy')).toThrow(/Invalid session transition/);
   });

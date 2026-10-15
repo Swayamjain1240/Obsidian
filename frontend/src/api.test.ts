@@ -10,7 +10,7 @@ describe('frontend intake API', () => {
       'fetch',
       vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ status: { github: 'implemented', completeness: 'implemented', aiAnalysis: 'not_available' } }),
+        json: async () => ({ status: { github: 'implemented', completeness: 'implemented', baselineChecks: 'implemented', aiAnalysis: 'not_available' } }),
       }),
     );
 

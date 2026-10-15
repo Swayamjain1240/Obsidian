@@ -11,6 +11,7 @@ describe('intake status', () => {
     expect(status.repositorySnapshot).toBe('implemented');
     expect(status.stackDetection).toBe('implemented');
     expect(status.completeness).toBe('implemented');
+    expect(status.baselineChecks).toBe('implemented');
     expect(status.aiAnalysis).toBe('not_available');
   });
 });

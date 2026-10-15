@@ -4,7 +4,7 @@ export interface IntakeStatus {
   repositorySnapshot: 'implemented';
   stackDetection: 'implemented';
   completeness: 'implemented';
-  baselineChecks: 'not_implemented';
+  baselineChecks: 'implemented';
   aiAnalysis: 'not_available';
 }
 
@@ -15,7 +15,7 @@ export function getIntakeStatus(): IntakeStatus {
     repositorySnapshot: 'implemented',
     stackDetection: 'implemented',
     completeness: 'implemented',
-    baselineChecks: 'not_implemented',
+    baselineChecks: 'implemented',
     aiAnalysis: 'not_available',
   };
 }
