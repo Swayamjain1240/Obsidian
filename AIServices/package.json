@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run",
+    "test": "vitest run --exclude **/dist/**",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },

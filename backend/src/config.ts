@@ -20,6 +20,16 @@ const configSchema = z.object({
   AUTH_SESSION_SECRET: z.string().min(32).optional(),
   SNAPSHOT_MAX_BYTES: z.coerce.number().int().positive().max(500_000_000).default(52_428_800),
   SNAPSHOT_ROOT: z.string().min(1).default('.obsidian-workspaces'),
+  SNAPSHOT_MAX_EXTRACTED_BYTES: z.coerce.number().int().positive().max(2_000_000_000).default(209_715_200),
+  SNAPSHOT_MAX_FILES: z.coerce.number().int().positive().max(100_000).default(10_000),
+  SNAPSHOT_MAX_DIRECTORIES: z.coerce.number().int().positive().max(50_000).default(5_000),
+  SNAPSHOT_MAX_SINGLE_FILE_BYTES: z.coerce.number().int().positive().max(500_000_000).default(20_971_520),
+  SNAPSHOT_MAX_PATH_LENGTH: z.coerce.number().int().positive().max(8_192).default(1_024),
+  SNAPSHOT_EXTRACTION_TIMEOUT_MS: z.coerce.number().int().positive().max(3_600_000).default(120_000),
+  DETECTION_MAX_EVIDENCE_FILE_BYTES: z.coerce.number().int().positive().max(10_000_000).default(1_048_576),
+  DETECTION_MAX_EVIDENCE_PATHS: z.coerce.number().int().positive().max(1_000).default(100),
+  DETECTION_MIN_VISIBLE_MS: z.coerce.number().int().min(0).max(60_000).default(5_000),
+  DETECTION_POLL_INTERVAL_MS: z.coerce.number().int().positive().max(10_000).default(500),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

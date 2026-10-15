@@ -5,24 +5,30 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "preview": "vite preview",
     "build": "tsc -b && vite build",
+    "e2e": "playwright test --config playwright.config.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
+    "gsap": "^3.15.0",
     "react": "latest",
     "react-dom": "latest",
     "react-router-dom": "latest",
+    "three": "^0.186.1",
     "typescript": "latest",
     "vite": "latest"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.0",
     "@testing-library/jest-dom": "latest",
     "@testing-library/react": "latest",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.186.0",
     "jsdom": "latest",
     "vitest": "latest"
   }
