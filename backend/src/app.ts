@@ -14,6 +14,8 @@ import type { RepositoryIntakeService } from './intake/service.js';
 import { SnapshotHandleStore } from './intake/handle-store.js';
 import { createDetectionRouter } from './detection/router.js';
 import { DetectionService, type DetectionEventSink } from './detection/service.js';
+import { createCompletenessRouter } from './completeness/router.js';
+import { CompletenessService } from './completeness/service.js';
 import { securityMiddleware } from './security.js';
 
 export function createApp(config: AppConfig, dependencies: {
@@ -22,6 +24,7 @@ export function createApp(config: AppConfig, dependencies: {
   handleStore?: SnapshotHandleStore;
   detectionService?: DetectionService;
   detectionEventSink?: DetectionEventSink;
+  completenessService?: CompletenessService;
 } = {}) {
   const app = express();
 
@@ -73,9 +76,11 @@ export function createApp(config: AppConfig, dependencies: {
   if (sessionStore) {
     const handleStore = dependencies.handleStore ?? new SnapshotHandleStore();
     const detectionService = dependencies.detectionService ?? new DetectionService(config, handleStore, undefined, dependencies.detectionEventSink);
+    const completenessService = dependencies.completenessService ?? new CompletenessService(config, undefined, dependencies.detectionEventSink);
     app.use('/api/v1/github', createGithubRouter(sessionStore));
     app.use('/api/v1/intake', createIntakeRouter(config, sessionStore, dependencies.intakeService, handleStore));
     app.use('/api/v1/intake/detections', createDetectionRouter(config, sessionStore, detectionService));
+    app.use('/api/v1/intake/completeness', createCompletenessRouter(config, sessionStore, detectionService, completenessService));
   }
 
   app.use((_request, response: Response) => {
