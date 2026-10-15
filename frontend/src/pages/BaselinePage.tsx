@@ -34,7 +34,7 @@ export function BaselinePage() {
   );
 
   const run = baseline.run;
-  const progress = Boolean(run && (run.status === 'failed' || run.status === 'partial' || run.status === 'cancelled'))
+  const progress = Boolean(run && (run.status === 'failed' || run.status === 'cancelled'))
     || baseline.phase === 'loading' || baseline.phase === 'planning' || baseline.phase === 'running' || baseline.phase === 'error';
 
   return (
