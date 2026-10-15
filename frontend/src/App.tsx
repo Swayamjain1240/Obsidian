@@ -4,6 +4,7 @@ import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'reac
 import { CrystalCanvas } from './components/CrystalCanvas';
 import { useAuthSession, type AuthSessionState } from './hooks/useAuthSession';
 import { ConfirmationPage } from './pages/ConfirmationPage';
+import { CompletenessPage } from './pages/CompletenessPage';
 import { DetectionPage } from './pages/DetectionPage';
 import { HealthPage } from './pages/HealthPage';
 import { HomePage } from './pages/HomePage';
@@ -15,6 +16,7 @@ const phases = [
   { path: '/project/select', label: 'Repository', shortLabel: '1 · Repository' },
   { path: '/project/detect', label: 'Detection', shortLabel: '2 · Detection' },
   { path: '/project/confirm', label: 'Confirmation', shortLabel: '3 · Confirmation' },
+  { path: '/project/completeness', label: 'Completeness', shortLabel: '4 · Completeness' },
   { path: '/health', label: 'Health · future', shortLabel: 'Health · future' },
 ];
 
@@ -86,6 +88,7 @@ function AppShell({ session, onSignOut }: { session: AuthSessionState; onSignOut
             <Route path="/project/select" element={<ProtectedRoute session={session}><RepositoryPage /></ProtectedRoute>} />
             <Route path="/project/detect" element={<ProtectedRoute session={session}><DetectionPage /></ProtectedRoute>} />
             <Route path="/project/confirm" element={<ProtectedRoute session={session}><ConfirmationPage /></ProtectedRoute>} />
+            <Route path="/project/completeness" element={<ProtectedRoute session={session}><CompletenessPage /></ProtectedRoute>} />
             <Route path="/health" element={<ProtectedRoute session={session}><HealthPage /></ProtectedRoute>} />
             <Route path="*" element={<Navigate replace to="/home" />} />
           </Routes>
