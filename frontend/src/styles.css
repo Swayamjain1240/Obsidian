@@ -129,6 +129,13 @@ select { width: 100%; min-width: 0; min-height: 44px; padding: 0.5rem 0.6rem; bo
 .baseline-layout { min-height: 0; }
 .baseline-panel, .baseline-browser { min-height: 0; }
 .baseline-browser { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; gap: 0.65rem; }
+.workflow-layout { min-height: 0; }
+.workflow-panel { min-height: 0; overflow: auto; }
+.workflow-list { display: grid; gap: 0.65rem; min-height: 0; overflow: auto; }
+.workflow-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; padding: 0.75rem; border: 1px solid var(--line); border-radius: 0.65rem; background: rgba(29, 23, 41, 0.6); }
+.workflow-item p { margin: 0.35rem 0; }
+.workflow-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem; margin-top: 0.75rem; }
+.workflow-actions .primary-button, .workflow-actions .secondary-button { min-height: 40px; }
 .scan-status { flex: 0 0 auto; font-size: 0.875rem; }
 .scan-placeholder { display: grid; place-items: center; flex: 1; min-height: 0; color: var(--violet); font-size: 3rem; }
 .confirmation-body { display: flex; flex: 1; min-height: 0; }

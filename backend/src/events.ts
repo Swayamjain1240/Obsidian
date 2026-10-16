@@ -35,3 +35,16 @@ export function createSystemEvent(input: Omit<SystemEvent, 'eventId' | 'timestam
     affectedPaths: input.affectedPaths.map((path) => redact(path)),
   };
 }
+
+export function createDurableEventSink(): (event: SystemEvent) => Promise<void> {
+  return async (event) => {
+    const { getDatabaseStatus } = await import('./db/connection.js');
+    if (getDatabaseStatus() !== 'connected') return;
+    const { SystemEventModel } = await import('./db/models.js');
+    await SystemEventModel.updateOne(
+      { eventId: event.eventId },
+      { $setOnInsert: event },
+      { upsert: true },
+    ).exec();
+  };
+}

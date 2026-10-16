@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { ExtractionRecord } from '../intake/extraction.js';
 import { readFileManifest, readVerifiedFile, safeFilePath, type ManifestFile } from '../detection/scanner.js';
 import type { BaselineCheckCategory, BaselineEvidenceRef } from './types.js';
+import { scanSecretMarkers } from '../security/secret-scanner.js';
 
 export interface BaselineCommandSpec {
   id: string;
@@ -12,6 +13,7 @@ export interface BaselineCommandSpec {
   executable: string;
   args: string[];
   evidenceRefs: BaselineEvidenceRef[];
+  network?: 'blocked' | 'registry_only';
 }
 
 export interface BaselinePlannedCheck {
@@ -23,6 +25,7 @@ export interface BaselinePlannedCheck {
   initialStatus: 'queued' | 'not_available';
   summary: string;
   evidenceRefs: BaselineEvidenceRef[];
+  staticResult?: { status: 'passed' | 'failed'; summary: string };
 }
 
 export interface BaselinePlan {
@@ -160,7 +163,10 @@ function addNodeChecks(checks: BaselinePlannedCheck[], files: readonly ManifestF
   }
   const lock = findPath(files, ['package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb']);
   if (lock && checks.length < maxChecks) {
-    addNotAvailable(checks, 'dependency-audit', 'security', 'Dependency security audit', 'Dependency audit requires a later network-aware security worker.', manifestEvidence(lock, 'lockfile found; network-aware audit deferred'));
+    addCommand(checks, {
+      id: 'dependency-audit', category: 'security', label: 'Dependency security audit', commandLabel: 'npm audit --package-lock-only --ignore-scripts', executable: 'npm',
+      args: ['audit', '--package-lock-only', '--ignore-scripts', '--json'], network: 'registry_only', evidenceRefs: manifestEvidence(lock, 'lockfile found; registry-only dependency audit selected'),
+    }, 'A registry-only dependency audit is available; package scripts are disabled.');
   }
 }
 
@@ -200,12 +206,35 @@ function addLanguageChecks(checks: BaselinePlannedCheck[], files: readonly Manif
     const evidence = findPath(files, ['build.gradle', 'build.gradle.kts']) ?? findSuffix(files, ['.gradle', '.gradle.kts'])!;
     addCommand(checks, { id: 'kotlin-unit', category: 'unit', label: 'Gradle tests', commandLabel: 'gradle test', executable: 'gradle', args: ['test'], evidenceRefs: manifestEvidence(evidence, 'Gradle project configuration found') }, 'Gradle tests are available for bounded execution.');
   }
+  if (language === 'PHP' && findPath(files, ['composer.json'])) {
+    const evidence = findPath(files, ['composer.json'])!;
+    addCommand(checks, { id: 'php-unit', category: 'unit', label: 'Composer tests', commandLabel: 'composer test', executable: 'composer', args: ['test'], evidenceRefs: manifestEvidence(evidence, 'Composer project configuration found') }, 'Composer tests are available for bounded execution.');
+  }
+  if (language === 'C#' && (findPath(files, ['global.json']) || findSuffix(files, ['.sln', '.csproj']))) {
+    const evidence = findPath(files, ['global.json']) ?? findSuffix(files, ['.sln', '.csproj'])!;
+    addCommand(checks, { id: 'dotnet-unit', category: 'unit', label: '.NET tests', commandLabel: 'dotnet test', executable: 'dotnet', args: ['test', '--no-restore'], evidenceRefs: manifestEvidence(evidence, '.NET project configuration found') }, '.NET tests are available for bounded execution.');
+  }
+  if (language === 'Dart' && findPath(files, ['pubspec.yaml'])) {
+    const evidence = findPath(files, ['pubspec.yaml'])!;
+    addCommand(checks, { id: 'dart-unit', category: 'unit', label: 'Dart tests', commandLabel: 'dart test', executable: 'dart', args: ['test'], evidenceRefs: manifestEvidence(evidence, 'Dart project configuration found') }, 'Dart tests are available for bounded execution.');
+  }
+  if (language === 'Ruby' && findPath(files, ['gemfile'])) {
+    const evidence = findPath(files, ['gemfile'])!;
+    addCommand(checks, { id: 'ruby-unit', category: 'unit', label: 'Ruby tests', commandLabel: 'bundle exec rake test', executable: 'bundle', args: ['exec', 'rake', 'test'], evidenceRefs: manifestEvidence(evidence, 'Ruby project configuration found') }, 'Ruby tests are available for bounded execution.');
+  }
 }
 
 export async function discoverBaselinePlan(options: DiscoveryOptions): Promise<BaselinePlan> {
   const signal = options.signal ?? new AbortController().signal;
   const files = await readFileManifest(options.extraction, () => signal.throwIfAborted(), signal);
   const checks: BaselinePlannedCheck[] = [];
+  const secretScan = await scanSecretMarkers(options.extraction, signal);
+  checks.push({
+    id: 'secret-scan', category: 'security', label: 'Secret pattern scan', commandLabel: null, command: null, initialStatus: 'queued',
+    summary: secretScan.findings.length ? 'Potential secret patterns require review.' : 'No configured secret patterns were detected.',
+    evidenceRefs: secretScan.findings.slice(0, 8).map((finding) => ({ path: finding.path, reason: `${finding.reason} at line ${finding.line}`, kind: 'result' })),
+    staticResult: { status: secretScan.findings.length ? 'failed' : 'passed', summary: secretScan.findings.length ? `${secretScan.findings.length} potential secret pattern${secretScan.findings.length === 1 ? '' : 's'} detected.` : 'No configured secret patterns were detected.' },
+  });
   const manager = managerFor(files);
   const packageFile = findPath(files, ['package.json']);
   if (packageFile && manager && options.languageCandidates.some((candidate) => candidate === 'JavaScript' || candidate === 'TypeScript')) {

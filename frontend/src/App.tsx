@@ -6,6 +6,7 @@ import { useAuthSession, type AuthSessionState } from './hooks/useAuthSession';
 import { ConfirmationPage } from './pages/ConfirmationPage';
 import { CompletenessPage } from './pages/CompletenessPage';
 import { BaselinePage } from './pages/BaselinePage';
+import { WorkflowPage } from './pages/WorkflowPage';
 import { DetectionPage } from './pages/DetectionPage';
 import { HealthPage } from './pages/HealthPage';
 import { HomePage } from './pages/HomePage';
@@ -19,7 +20,10 @@ const phases = [
   { path: '/project/confirm', label: 'Confirmation', shortLabel: '3 · Confirmation' },
   { path: '/project/completeness', label: 'Completeness', shortLabel: '4 · Completeness' },
   { path: '/project/baseline', label: 'Baseline', shortLabel: '5 · Baseline' },
-  { path: '/health', label: 'Health · future', shortLabel: '6 · Health · future' },
+  { path: '/project/repair', label: 'Repair review', shortLabel: '6 · Repair' },
+  { path: '/project/enhance', label: 'Enhancements', shortLabel: '7 · Enhance' },
+  { path: '/project/delivery', label: 'Version 2', shortLabel: '8 · Version 2' },
+  { path: '/health', label: 'Health · future', shortLabel: '9 · Health · future' },
 ];
 
 function ProtectedRoute({ session, children }: { session: AuthSessionState; children: ReactNode }) {
@@ -92,6 +96,9 @@ function AppShell({ session, onSignOut }: { session: AuthSessionState; onSignOut
             <Route path="/project/confirm" element={<ProtectedRoute session={session}><ConfirmationPage /></ProtectedRoute>} />
             <Route path="/project/completeness" element={<ProtectedRoute session={session}><CompletenessPage /></ProtectedRoute>} />
             <Route path="/project/baseline" element={<ProtectedRoute session={session}><BaselinePage /></ProtectedRoute>} />
+            <Route path="/project/repair" element={<ProtectedRoute session={session}><WorkflowPage /></ProtectedRoute>} />
+            <Route path="/project/enhance" element={<ProtectedRoute session={session}><WorkflowPage /></ProtectedRoute>} />
+            <Route path="/project/delivery" element={<ProtectedRoute session={session}><WorkflowPage /></ProtectedRoute>} />
             <Route path="/health" element={<ProtectedRoute session={session}><HealthPage /></ProtectedRoute>} />
             <Route path="*" element={<Navigate replace to="/home" />} />
           </Routes>

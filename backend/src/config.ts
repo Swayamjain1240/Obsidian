@@ -39,6 +39,9 @@ const configSchema = z.object({
   BASELINE_CHECK_TIMEOUT_MS: z.coerce.number().int().positive().max(900_000).default(120_000),
   BASELINE_MAX_TOTAL_TIMEOUT_MS: z.coerce.number().int().positive().max(3_600_000).default(600_000),
   BASELINE_MAX_OUTPUT_BYTES: z.coerce.number().int().positive().max(1_000_000).default(65_536),
+  BASELINE_MAX_MEMORY_BYTES: z.coerce.number().int().positive().max(4_294_967_296).default(536_870_912),
+  BASELINE_MAX_PROCESSES: z.coerce.number().int().positive().max(256).default(32),
+  BASELINE_NETWORK_MODE: z.enum(['blocked', 'registry_only']).default('blocked'),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

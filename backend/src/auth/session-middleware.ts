@@ -12,15 +12,14 @@ export function getCookie(request: Request, name: string): string | null {
 export function requireGithubSession(sessionStore: SessionStore) {
   return (request: Request, response: Response, next: NextFunction) => {
     const signedSession = getCookie(request, 'obsidian_session');
-    const session = signedSession ? sessionStore.get(signedSession) : null;
-
-    if (!session) {
-      response.status(401).json(errorBody('UNAUTHENTICATED', 'GitHub sign-in is required.', response.locals.requestId as string));
-      return;
-    }
-
-    request.auth = { userId: String(session.githubUserId), permissions: ['repository:read'] };
-    response.locals.githubSession = session;
-    next();
+    void (signedSession ? sessionStore.getAsync(signedSession) : Promise.resolve(null)).then((session) => {
+      if (!session) {
+        response.status(401).json(errorBody('UNAUTHENTICATED', 'GitHub sign-in is required.', response.locals.requestId as string));
+        return;
+      }
+      request.auth = { userId: String(session.githubUserId), permissions: ['repository:read'] };
+      response.locals.githubSession = session;
+      next();
+    }).catch(next);
   };
 }

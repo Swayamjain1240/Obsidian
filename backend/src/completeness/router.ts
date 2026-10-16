@@ -51,9 +51,9 @@ export function createCompletenessRouter(
     } catch (reason: unknown) { respondError(response, reason); }
   });
 
-  router.get('/:runId', (request, response) => {
+  router.get('/:runId', async (request, response) => {
     try {
-      response.json({ run: completeness.get(owner(request), request.params.runId), requestId: response.locals.requestId });
+      response.json({ run: await completeness.getDurable(owner(request), request.params.runId), requestId: response.locals.requestId });
     } catch (reason: unknown) { respondError(response, reason); }
   });
 

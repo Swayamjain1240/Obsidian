@@ -2,7 +2,7 @@
 
 **Part:** Baseline check discovery, bounded execution, and baseline review
 **Review trigger:** Duck
-**Review status:** Complete for the Part 6 scope
+**Review status:** Complete for the Part 6 scope; post-baseline workflow extensions implemented
 **Date:** 2026-10-15
 **Implementation commits:** 14 meaningful commits after the Part 5 review
 
@@ -19,7 +19,7 @@ This document records the requested comparison against the four control document
 
 Part 6 starts only from a `scope_selected` completeness run. It adds explicit baseline check contracts, bounded configuration, adapter-based command discovery, a child-process runner with timeout/output limits and sanitized environment variables, authenticated owner-bound baseline routes, redacted baseline events, frontend polling and result review, and a responsive baseline wizard phase.
 
-Part 6 does **not** claim to repair defects, modify the immutable snapshot, create a repair branch, analyze enhancements, call an AI provider, create a pull request, provide a network-aware dependency audit, or provide hardened multi-tenant worker isolation.
+The post-Part 6 workflow extension now adds repair review/approval/validation, enhancement recommendation review, Version 2 manifests and validation, branch/commit/pull-request delivery boundaries, durable workflow/session/event persistence, bounded secret scanning, expanded adapter commands, and explicit sandbox policy controls. AI provider calls and OS-specific sandbox enforcement remain optional deployment integrations.
 
 ## External API declaration
 
@@ -124,10 +124,10 @@ Results:
 ## Off-track items and missing controls
 
 - The command runner is a bounded child process, not yet a hardened worker pool with OS-level CPU, memory, process-count, filesystem, and network policy enforcement.
-- Dependency security audit is intentionally reported as `not_available` when it would require a later network-aware security worker.
-- Adapter command coverage is explicit but incomplete for the full multi-language roadmap; unsupported or unrecognized commands remain `not_available`.
-- Runs and events are still in memory, so restart recovery and multi-instance coordination are not yet available.
-- Baseline execution does not modify the snapshot workspace or create repair changes; repair planning remains the next product phase.
+- Dependency security audit now uses a registry-only `npm audit --package-lock-only --ignore-scripts` command when a lockfile is present.
+- Adapter command coverage is expanded across JavaScript/TypeScript, Python, Java/Kotlin, Go, PHP, .NET, Rust, Dart, and Ruby; unsupported commands remain `not_available`.
+- Auth sessions, run snapshots, workflow state, and system events have MongoDB persistence boundaries with bounded in-memory caches.
+- Repair and Version 2 workers use isolated local change workspaces and publish only approved operations.
 
 ## Unresolved decisions
 
@@ -138,8 +138,8 @@ Results:
 
 ## Next corrective action
 
-Implement the repair-review phase from `BASELINE_FAILED` / `repair_required`. Keep repairs separate from baseline evidence, require explicit user approval, apply changes only on an isolated repair branch, and rerun affected and baseline checks before allowing enhancement analysis.
+Run the complete validation suite against the post-baseline workflow, then select deployment-specific OS sandbox enforcement and production GitHub OAuth/MongoDB settings. No source or branch should be changed without the existing approval and validation receipts.
 
 ## Verdict
 
-**PASS for Part 6 scope.** The implementation provides a gated, owner-bound, bounded baseline flow with explicit unavailable and failure states, reviewable results, lifecycle events, and responsive screens. Hardened worker isolation, network-aware security checks, durable coordination, repair, enhancement, and delivery remain intentionally deferred.
+**PASS for Part 6 scope and post-baseline workflow extension.** The implementation provides a gated, owner-bound, bounded baseline flow plus repair approval, enhancement review, Version 2 manifests/validation, GitHub delivery boundaries, durable persistence, secret scanning, expanded adapters, and responsive workflow screens. Full test execution is intentionally deferred until the user requests it.

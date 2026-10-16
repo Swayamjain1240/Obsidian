@@ -26,7 +26,7 @@ export function BaselinePage() {
 
   if (!completenessRunId) return (
     <section className="page-layout empty-page" aria-labelledby="baseline-title">
-      <span className="eyebrow">Step 5 of 6</span>
+      <span className="eyebrow">Step 5 of 9</span>
       <h1 id="baseline-title">Choose a scope first.</h1>
       <p className="muted">Baseline checks start only after completeness review and explicit scope selection.</p>
       <Link className="primary-button" to="/project/completeness">Review completeness</Link>
@@ -39,7 +39,7 @@ export function BaselinePage() {
 
   return (
     <section ref={contentRef} className="page-layout baseline-layout" aria-labelledby="baseline-page-title">
-      <div className="page-intro"><span className="eyebrow">Step 5 of 6 · baseline testing</span><h1 id="baseline-page-title">Validate what already exists.</h1></div>
+      <div className="page-intro"><span className="eyebrow">Step 5 of 9 · baseline testing</span><h1 id="baseline-page-title">Validate what already exists.</h1></div>
       {!run ? (
         <section className="panel next-step-panel" aria-labelledby="baseline-start-title">
           <span className="panel-glyph" aria-hidden="true">◎</span>
@@ -50,7 +50,7 @@ export function BaselinePage() {
         </section>
       ) : progress ? (
         <BaselineProgress run={run} phase={baseline.phase} busy={baseline.busy} error={baseline.error} onCancel={baseline.cancel} onReload={baseline.reload} />
-      ) : <BaselineReviewPanel run={run} />}
+      ) : <><BaselineReviewPanel run={run} /><div className="workflow-actions"><Link className="primary-button" to={`/project/repair?baselineRunId=${encodeURIComponent(run.runId)}`}>Open repair review</Link><Link className="secondary-button" to={`/project/enhance?baselineRunId=${encodeURIComponent(run.runId)}`}>Analyze enhancements</Link></div></>}
     </section>
   );
 }

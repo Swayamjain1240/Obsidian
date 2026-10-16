@@ -18,6 +18,12 @@ import { createCompletenessRouter } from './completeness/router.js';
 import { CompletenessService } from './completeness/service.js';
 import { createBaselineRouter } from './baseline/router.js';
 import { BaselineService } from './baseline/service.js';
+import { createDurableEventSink } from './events.js';
+import { createWorkflowRouter } from './workflow/router.js';
+import { WorkflowService } from './workflow/service.js';
+import { DurableWorkflowStore } from './workflow/store.js';
+import { DurableRunStore } from './workflow/run-store.js';
+import { getDatabaseStatus } from './db/connection.js';
 import { securityMiddleware } from './security.js';
 
 export function createApp(config: AppConfig, dependencies: {
@@ -28,6 +34,7 @@ export function createApp(config: AppConfig, dependencies: {
   detectionEventSink?: DetectionEventSink;
   completenessService?: CompletenessService;
   baselineService?: BaselineService;
+  workflowService?: WorkflowService;
 } = {}) {
   const app = express();
 
@@ -60,9 +67,11 @@ export function createApp(config: AppConfig, dependencies: {
   });
 
   app.get('/health/ready', (_request: Request, response: Response) => {
-    response.status(503).json({
-      status: 'not_ready',
-      checks: { mongodb: 'not_connected' },
+    const mongodb = getDatabaseStatus();
+    const ready = mongodb === 'connected';
+    response.status(ready ? 200 : 503).json({
+      status: ready ? 'ready' : 'not_ready',
+      checks: { mongodb },
       requestId: response.locals.requestId,
     });
   });
@@ -77,15 +86,19 @@ export function createApp(config: AppConfig, dependencies: {
   const sessionStore = dependencies.sessionStore ?? (config.AUTH_SESSION_SECRET ? new SessionStore(config.AUTH_SESSION_SECRET) : undefined);
   app.use('/auth', createAuthRouter(config, undefined, sessionStore));
   if (sessionStore) {
+    const eventSink = dependencies.detectionEventSink ?? createDurableEventSink();
+    const runStore = new DurableRunStore();
     const handleStore = dependencies.handleStore ?? new SnapshotHandleStore();
-    const detectionService = dependencies.detectionService ?? new DetectionService(config, handleStore, undefined, dependencies.detectionEventSink);
-    const completenessService = dependencies.completenessService ?? new CompletenessService(config, undefined, dependencies.detectionEventSink);
-    const baselineService = dependencies.baselineService ?? new BaselineService(config, completenessService, undefined, dependencies.detectionEventSink);
+    const detectionService = dependencies.detectionService ?? new DetectionService(config, handleStore, undefined, eventSink, runStore);
+    const completenessService = dependencies.completenessService ?? new CompletenessService(config, undefined, eventSink, runStore);
+    const baselineService = dependencies.baselineService ?? new BaselineService(config, completenessService, undefined, eventSink, runStore);
+    const workflowService = dependencies.workflowService ?? new WorkflowService(config, baselineService, completenessService, new DurableWorkflowStore(), eventSink);
     app.use('/api/v1/github', createGithubRouter(sessionStore));
     app.use('/api/v1/intake', createIntakeRouter(config, sessionStore, dependencies.intakeService, handleStore));
     app.use('/api/v1/intake/detections', createDetectionRouter(config, sessionStore, detectionService));
     app.use('/api/v1/intake/completeness', createCompletenessRouter(config, sessionStore, detectionService, completenessService));
     app.use('/api/v1/intake/baseline', createBaselineRouter(config, sessionStore, baselineService));
+    app.use('/api/v1/workflow', createWorkflowRouter(config, sessionStore, workflowService));
   }
 
   app.use((_request, response: Response) => {

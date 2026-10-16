@@ -31,6 +31,19 @@ const sessionSchema = new Schema(
   { timestamps },
 );
 
+const authSessionSchema = new Schema(
+  {
+    sessionId: { type: String, required: true, unique: true, immutable: true },
+    githubUserId: { type: Number, required: true, immutable: true },
+    githubLogin: { type: String, required: true, immutable: true },
+    accessTokenCiphertext: { type: String, required: true },
+    accessTokenIv: { type: String, required: true },
+    accessTokenTag: { type: String, required: true },
+    expiresAt: { type: Date, required: true, index: true },
+  },
+  { timestamps: true },
+);
+
 const runSchema = new Schema(
   {
     sessionId: { type: Schema.Types.ObjectId, ref: 'Session', required: true },
@@ -40,6 +53,17 @@ const runSchema = new Schema(
   },
   { timestamps },
 );
+
+const durableRunStateSchema = new Schema(
+  {
+    ownerUserId: { type: String, required: true, index: true, immutable: true },
+    runId: { type: String, required: true, index: true, immutable: true },
+    phase: { type: String, required: true, immutable: true },
+    payload: { type: Schema.Types.Mixed, required: true },
+  },
+  { timestamps: true },
+);
+durableRunStateSchema.index({ ownerUserId: 1, runId: 1 }, { unique: true });
 
 const systemEventSchema = new Schema(
   {
@@ -63,5 +87,20 @@ export const ProjectModel = mongoose.models.Project ?? mongoose.model('Project',
 export const RepositorySnapshotModel =
   mongoose.models.RepositorySnapshot ?? mongoose.model('RepositorySnapshot', repositorySnapshotSchema);
 export const SessionModel = mongoose.models.Session ?? mongoose.model('Session', sessionSchema);
+export const AuthSessionModel = mongoose.models.AuthSession ?? mongoose.model('AuthSession', authSessionSchema);
 export const RunModel = mongoose.models.Run ?? mongoose.model('Run', runSchema);
+export const DurableRunStateModel = mongoose.models.DurableRunState ?? mongoose.model('DurableRunState', durableRunStateSchema);
 export const SystemEventModel = mongoose.models.SystemEvent ?? mongoose.model('SystemEvent', systemEventSchema);
+
+const workflowStateSchema = new Schema(
+  {
+    ownerUserId: { type: String, required: true, index: true, immutable: true },
+    kind: { type: String, required: true, index: true, immutable: true },
+    stateId: { type: String, required: true, index: true, immutable: true },
+    payload: { type: Schema.Types.Mixed, required: true },
+  },
+  { timestamps: true },
+);
+workflowStateSchema.index({ ownerUserId: 1, kind: 1, stateId: 1 }, { unique: true });
+
+export const WorkflowStateModel = mongoose.models.WorkflowState ?? mongoose.model('WorkflowState', workflowStateSchema);

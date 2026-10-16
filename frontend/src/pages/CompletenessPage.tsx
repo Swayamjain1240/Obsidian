@@ -39,7 +39,7 @@ export function CompletenessPage() {
 
   if (!detectionRunId) return (
     <section className="page-layout empty-page" aria-labelledby="completeness-title">
-      <span className="eyebrow">Step 4 of 6</span>
+      <span className="eyebrow">Step 4 of 9</span>
       <h1 id="completeness-title">Confirm the stack first.</h1>
       <p className="muted">Completeness review is available only after stack confirmation on an immutable snapshot.</p>
       <Link className="primary-button" to="/project/select">Choose a repository</Link>
@@ -53,7 +53,7 @@ export function CompletenessPage() {
 
   return (
     <section ref={contentRef} className="page-layout completeness-layout" aria-labelledby="completeness-page-title">
-      <div className="page-intro"><span className="eyebrow">Step 4 of 6 · completeness and scope</span><h1 id="completeness-page-title">Understand what already exists.</h1></div>
+      <div className="page-intro"><span className="eyebrow">Step 4 of 9 · completeness and scope</span><h1 id="completeness-page-title">Understand what already exists.</h1></div>
       {!run ? (
         <section className="panel next-step-panel" aria-labelledby="completeness-start-title">
           <span className="panel-glyph" aria-hidden="true">◌</span>

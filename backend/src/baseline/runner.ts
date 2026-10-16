@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 
 import type { BaselineCommandSpec } from './adapters.js';
+import { defaultSandboxPolicy, validateSandboxCommand } from './sandbox.js';
 
 export type BaselineCommandStatus = 'passed' | 'failed' | 'not_available' | 'timed_out' | 'cancelled';
 
@@ -15,9 +16,12 @@ export interface BaselineCommandResult {
 
 export interface BaselineCommandRunnerOptions {
   cwd: string;
+  workspaceRoot?: string;
   timeoutMs: number;
   maxOutputBytes: number;
   signal: AbortSignal;
+  maxMemoryBytes?: number;
+  maxProcesses?: number;
 }
 
 function executableName(executable: string): string {
@@ -26,17 +30,33 @@ function executableName(executable: string): string {
   return executable;
 }
 
-function workerEnvironment(): NodeJS.ProcessEnv {
+function workerEnvironment(network: 'blocked' | 'registry_only' = 'blocked', maxMemoryBytes?: number): NodeJS.ProcessEnv {
   const inherited = process.env;
   const allowed = ['PATH', 'Path', 'SystemRoot', 'SYSTEMROOT', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'LANG', 'LC_ALL'];
   const env: NodeJS.ProcessEnv = {};
   for (const key of allowed) if (inherited[key]) env[key] = inherited[key];
   env.CI = '1';
   env.NO_COLOR = '1';
-  env.npm_config_audit = 'false';
+  env.npm_config_audit = network === 'registry_only' ? 'true' : 'false';
   env.npm_config_fund = 'false';
   env.npm_config_update_notifier = 'false';
+  env.npm_config_ignore_scripts = 'true';
+  env.NO_PROXY = network === 'blocked' ? '*' : env.NO_PROXY ?? '';
+  if (network === 'registry_only') env.npm_config_registry = 'https://registry.npmjs.org/';
+  if (maxMemoryBytes && maxMemoryBytes >= 64 * 1024 * 1024) env.NODE_OPTIONS = `--max-old-space-size=${Math.floor(maxMemoryBytes / (1024 * 1024))}`;
   return env;
+}
+
+function terminateProcess(child: ReturnType<typeof spawn>): void {
+  if (process.platform === 'win32' && child.pid) {
+    spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    return;
+  }
+  if (child.pid && process.platform !== 'win32') {
+    try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+    return;
+  }
+  child.kill('SIGKILL');
 }
 
 function safeSummary(status: BaselineCommandStatus, label: string, exitCode: number | null, outputTruncated: boolean): string {
@@ -49,6 +69,8 @@ function safeSummary(status: BaselineCommandStatus, label: string, exitCode: num
 
 export function runBaselineCommand(command: BaselineCommandSpec, options: BaselineCommandRunnerOptions): Promise<BaselineCommandResult> {
   const startedAt = Date.now();
+  const sandbox = validateSandboxCommand(command.executable, options.cwd, options.workspaceRoot ?? options.cwd);
+  if (!sandbox.ok) return Promise.resolve({ status: 'not_available', exitCode: null, durationMs: 0, outputBytes: 0, outputTruncated: false, summary: `${command.label} is not available: ${sandbox.reason}` });
   if (options.signal.aborted) return Promise.resolve({ status: 'cancelled', exitCode: null, durationMs: 0, outputBytes: 0, outputTruncated: false, summary: safeSummary('cancelled', command.label, null, false) });
 
   return new Promise((resolve) => {
@@ -71,9 +93,10 @@ export function runBaselineCommand(command: BaselineCommandSpec, options: Baseli
     };
     const child = spawn(executableName(command.executable), command.args, {
       cwd: options.cwd,
-      env: workerEnvironment(),
+      env: workerEnvironment(command.network, options.maxMemoryBytes),
       shell: false,
       windowsHide: true,
+      detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const consume = (chunk: Buffer): void => {
@@ -84,11 +107,11 @@ export function runBaselineCommand(command: BaselineCommandSpec, options: Baseli
     child.stderr?.on('data', consume);
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill();
+      terminateProcess(child);
     }, options.timeoutMs);
     const onAbort = (): void => {
       cancelled = true;
-      child.kill();
+      terminateProcess(child);
     };
     options.signal.addEventListener('abort', onAbort, { once: true });
     child.once('error', (error: NodeJS.ErrnoException) => {

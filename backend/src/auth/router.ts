@@ -58,7 +58,7 @@ export function createAuthRouter(
         codeVerifier: stateRecord.codeVerifier,
       });
       const user = await client.getCurrentUser();
-      const signedSession = sessionStore.create({
+      const signedSession = await sessionStore.createAsync({
         githubUserId: user.id,
         githubLogin: user.login,
         accessToken: client.getAccessToken(),
@@ -81,9 +81,9 @@ export function createAuthRouter(
     }
   });
 
-  router.get('/me', (request, response) => {
+  router.get('/me', async (request, response) => {
     const signedSession = getCookie(request, 'obsidian_session');
-    const session = signedSession && sessionStore ? sessionStore.get(signedSession) : null;
+    const session = signedSession && sessionStore ? await sessionStore.getAsync(signedSession) : null;
     response.json({
       user: session ? { id: session.githubUserId, login: session.githubLogin } : null,
       configured: Boolean(config.GITHUB_CLIENT_ID && config.GITHUB_CLIENT_SECRET && config.GITHUB_CALLBACK_URL && config.AUTH_SESSION_SECRET),
@@ -91,9 +91,9 @@ export function createAuthRouter(
     });
   });
 
-  router.post('/logout', requireSameOrigin(config.FRONTEND_ORIGIN), (request, response) => {
+  router.post('/logout', requireSameOrigin(config.FRONTEND_ORIGIN), async (request, response) => {
     const signedSession = getCookie(request, 'obsidian_session');
-    if (signedSession && sessionStore) sessionStore.delete(signedSession);
+    if (signedSession && sessionStore) await sessionStore.deleteAsync(signedSession);
     const secure = config.NODE_ENV === 'production' ? '; Secure' : '';
     response.append('Set-Cookie', `obsidian_session=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax${secure}`);
     response.status(204).send();

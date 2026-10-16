@@ -21,6 +21,7 @@ import {
   type BaselineResult,
   type BaselineRunStatus,
 } from './types.js';
+import type { DurableRunStore } from '../workflow/run-store.js';
 
 export interface BaselineScopeProvider {
   selectedContext(ownerUserId: string, completenessRunId: string): {
@@ -28,6 +29,13 @@ export interface BaselineScopeProvider {
     scopeMode: 'FULL' | 'EXISTING_ONLY';
     context: ConfirmedDetectionContext;
   };
+}
+
+export interface SelectedBaselineContext {
+  baselineRunId: string;
+  completenessRunId: string;
+  scopeMode: 'FULL' | 'EXISTING_ONLY';
+  context: ConfirmedDetectionContext;
 }
 
 export interface BaselineEngine {
@@ -52,7 +60,7 @@ export interface BaselineEngine {
     signal: AbortSignal;
     onProgress?: (stage: string, checks: number) => void;
   }): Promise<BaselinePlan>;
-  run(command: BaselineCommandSpec, options: { cwd: string; timeoutMs: number; maxOutputBytes: number; signal: AbortSignal }): Promise<BaselineCommandResult>;
+  run(command: BaselineCommandSpec, options: { cwd: string; workspaceRoot?: string; timeoutMs: number; maxOutputBytes: number; maxMemoryBytes?: number; maxProcesses?: number; signal: AbortSignal }): Promise<BaselineCommandResult>;
 }
 
 export class BaselineServiceError extends Error {
@@ -125,6 +133,7 @@ export class BaselineService {
     private readonly scopeProvider: BaselineScopeProvider,
     engine?: Partial<BaselineEngine>,
     private readonly eventSink?: DetectionEventSink,
+    private readonly runStore?: DurableRunStore,
   ) {
     this.engine = {
       extract: (snapshot, policy, onProgress, signal) => extractSnapshot(snapshot, policy, onProgress, signal),
@@ -147,6 +156,7 @@ export class BaselineService {
       result: this.initialResult(selected.completenessRunId, selected.context, selected.scopeMode),
     };
     this.runs.set(stored.result.runId, stored);
+    void this.persist(stored);
     this.recordEvent(stored, 'BASELINE_STARTED', 'Baseline checks were queued for the selected immutable snapshot.', 'passed');
     void this.execute(stored);
     return publicResult(stored.result);
@@ -154,6 +164,34 @@ export class BaselineService {
 
   public get(ownerUserId: string, runId: string): BaselineResult {
     return publicResult(this.ownedRun(ownerUserId, runId).result);
+  }
+
+  public async getDurable(ownerUserId: string, runId: string): Promise<BaselineResult> {
+    const stored = this.runs.get(runId);
+    if (stored) {
+      if (stored.ownerUserId !== ownerUserId) throw new BaselineServiceError('BASELINE_NOT_FOUND', 'Baseline run was not found.', 404);
+      return publicResult(stored.result);
+    }
+    const persisted = await this.runStore?.get<BaselineResult>(ownerUserId, runId);
+    if (persisted) return publicResult(persisted);
+    throw new BaselineServiceError('BASELINE_NOT_FOUND', 'Baseline run was not found.', 404);
+  }
+
+  public selectedContext(ownerUserId: string, runId: string): SelectedBaselineContext {
+    const stored = this.ownedRun(ownerUserId, runId);
+    if (!['passed', 'failed', 'partial'].includes(stored.result.status)) {
+      throw new BaselineServiceError('BASELINE_STATE_INVALID', 'Complete baseline checks before starting the next workflow phase.', 409);
+    }
+    return {
+      baselineRunId: stored.result.runId,
+      completenessRunId: stored.completenessRunId,
+      scopeMode: stored.scopeMode,
+      context: {
+        ...stored.context,
+        snapshot: { ...stored.context.snapshot, repository: { ...stored.context.snapshot.repository } },
+        languageCandidates: [...stored.context.languageCandidates],
+      },
+    };
   }
 
   public cancel(ownerUserId: string, runId: string): BaselineResult {
@@ -165,6 +203,7 @@ export class BaselineService {
     stored.result.progress = { ...stored.result.progress, stage: 'cancelled' };
     stored.result.checks = stored.result.checks.map((check) => check.status === 'queued' || check.status === 'running' ? { ...check, status: 'cancelled', summary: 'The check was cancelled before completion.' } : check);
     stored.result.error = { code: 'BASELINE_CANCELLED', message: 'Baseline checks were cancelled. The immutable snapshot remains available.' };
+    void this.persist(stored);
     this.recordEvent(stored, 'RUN_CANCELLED', stored.result.error.message, 'skipped');
     return publicResult(stored.result);
   }
@@ -172,6 +211,10 @@ export class BaselineService {
   public listEvents(ownerUserId: string, runId: string): SystemEvent[] {
     const stored = this.ownedRun(ownerUserId, runId);
     return this.events.filter((event) => event.runId === stored.result.runId).map((event) => ({ ...event, affectedPaths: [...event.affectedPaths] }));
+  }
+
+  private async persist(stored: StoredRun): Promise<void> {
+    await this.runStore?.save(stored.ownerUserId, stored.result.runId, 'baseline', publicResult(stored.result));
   }
 
   private initialResult(completenessRunId: string, context: ConfirmedDetectionContext, scopeMode: 'FULL' | 'EXISTING_ONLY'): BaselineResult {
@@ -201,6 +244,7 @@ export class BaselineService {
   }
 
   private async execute(stored: StoredRun): Promise<void> {
+    const totalDeadline = Date.now() + this.config.BASELINE_MAX_TOTAL_TIMEOUT_MS;
     try {
       stored.lifecycleState = transition(stored.lifecycleState, 'baseline_testing');
       stored.result.status = 'planning';
@@ -232,8 +276,16 @@ export class BaselineService {
       stored.result.progress = { stage: 'running', checksCompleted: 0, checksTotal: stored.result.checks.length, passed: 0, failed: 0, notAvailable: 0 };
       for (let index = 0; index < plan.checks.length; index += 1) {
         if (isCancelled(stored)) return;
+        if (Date.now() >= totalDeadline) throw new Error('Baseline total timeout exceeded.');
         const planned = plan.checks[index];
         const check = stored.result.checks[index];
+        if (planned.staticResult) {
+          check.status = planned.staticResult.status;
+          check.summary = planned.staticResult.summary;
+          this.recordEvent(stored, 'CHECK_COMPLETED', `${check.label}: ${check.summary}`, planned.staticResult.status === 'passed' ? 'passed' : 'failed');
+          this.updateProgress(stored, index + 1);
+          continue;
+        }
         if (!planned.command) {
           this.recordEvent(stored, 'CHECK_COMPLETED', `${check.label} is not available: ${check.summary}`, 'unavailable');
           this.updateProgress(stored, index + 1);
@@ -243,8 +295,11 @@ export class BaselineService {
         this.recordEvent(stored, 'CHECK_STARTED', `${check.label} started.`, 'passed');
         const commandResult = await this.engine.run(planned.command, {
           cwd: workingDirectory(extraction),
+          workspaceRoot: workingDirectory(extraction),
           timeoutMs: this.config.BASELINE_CHECK_TIMEOUT_MS,
           maxOutputBytes: this.config.BASELINE_MAX_OUTPUT_BYTES,
+          maxMemoryBytes: this.config.BASELINE_MAX_MEMORY_BYTES,
+          maxProcesses: this.config.BASELINE_MAX_PROCESSES,
           signal: stored.controller.signal,
         });
         if (isCancelled(stored)) return;
@@ -281,6 +336,7 @@ export class BaselineService {
         stored.result.progress.stage = 'passed';
         this.recordEvent(stored, 'BASELINE_HEALTHY', 'All discovered baseline checks passed.', 'passed');
       }
+      void this.persist(stored);
     } catch (reason: unknown) {
       if (stored.result.status === 'cancelled' || stored.controller.signal.aborted) {
         if (stored.result.status !== 'cancelled') {
@@ -296,6 +352,7 @@ export class BaselineService {
       stored.result.status = 'failed';
       stored.result.progress.stage = 'failed';
       stored.result.error = { code: 'BASELINE_FAILED', message: safeErrorMessage(reason) };
+      void this.persist(stored);
       this.recordEvent(stored, 'BASELINE_FAILED', stored.result.error.message, 'failed');
     }
   }

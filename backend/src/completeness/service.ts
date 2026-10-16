@@ -14,6 +14,7 @@ import {
   type CompletenessRunStatus,
   type ScopeMode,
 } from './types.js';
+import type { DurableRunStore } from '../workflow/run-store.js';
 
 export interface CompletenessEngine {
   extract(
@@ -92,6 +93,7 @@ export class CompletenessService {
     private readonly config: AppConfig,
     engine?: Partial<CompletenessEngine>,
     private readonly eventSink?: DetectionEventSink,
+    private readonly runStore?: DurableRunStore,
   ) {
     this.engine = {
       extract: (snapshot, policy, onProgress, signal) => extractSnapshot(snapshot, policy, onProgress, signal),
@@ -111,6 +113,7 @@ export class CompletenessService {
       result: this.initialResult(context),
     };
     this.runs.set(stored.result.runId, stored);
+    void this.persist(stored);
     this.recordEvent(stored, 'COMPLETENESS_SCAN_STARTED', 'Completeness review was queued for the confirmed immutable snapshot.');
     void this.execute(stored);
     return publicResult(stored.result);
@@ -118,6 +121,17 @@ export class CompletenessService {
 
   public get(ownerUserId: string, runId: string): CompletenessResult {
     return publicResult(this.ownedRun(ownerUserId, runId).result);
+  }
+
+  public async getDurable(ownerUserId: string, runId: string): Promise<CompletenessResult> {
+    const stored = this.runs.get(runId);
+    if (stored) {
+      if (stored.ownerUserId !== ownerUserId) throw new CompletenessServiceError('COMPLETENESS_NOT_FOUND', 'Completeness run was not found.', 404);
+      return publicResult(stored.result);
+    }
+    const persisted = await this.runStore?.get<CompletenessResult>(ownerUserId, runId);
+    if (persisted) return publicResult(persisted);
+    throw new CompletenessServiceError('COMPLETENESS_NOT_FOUND', 'Completeness run was not found.', 404);
   }
 
   public selectScope(ownerUserId: string, runId: string, scopeMode: ScopeMode): CompletenessResult {
@@ -130,6 +144,7 @@ export class CompletenessService {
     stored.result.status = 'scope_selected';
     stored.result.nextPhase = 'baseline_testing';
     stored.result.progress = { ...stored.result.progress, stage: 'scope_selected' };
+    void this.persist(stored);
     this.recordEvent(stored, 'SCOPE_MODE_SELECTED', `Scope mode ${scopeMode} was selected. Baseline checks are the next phase.`, false);
     return publicResult(stored.result);
   }
@@ -161,6 +176,7 @@ export class CompletenessService {
     stored.result.status = 'cancelled';
     stored.result.progress = { ...stored.result.progress, stage: 'cancelled' };
     stored.result.error = { code: 'COMPLETENESS_CANCELLED', message: 'Completeness review was cancelled. The immutable snapshot remains available.' };
+    void this.persist(stored);
     this.recordEvent(stored, 'RUN_CANCELLED', 'Completeness review was cancelled before scope selection.', false);
     return publicResult(stored.result);
   }
@@ -168,6 +184,10 @@ export class CompletenessService {
   public listEvents(ownerUserId: string, runId: string): SystemEvent[] {
     const stored = this.ownedRun(ownerUserId, runId);
     return this.events.filter((event) => event.runId === stored.result.runId).map((event) => ({ ...event, affectedPaths: [...event.affectedPaths] }));
+  }
+
+  private async persist(stored: StoredRun): Promise<void> {
+    await this.runStore?.save(stored.ownerUserId, stored.result.runId, 'completeness', publicResult(stored.result));
   }
 
   private initialResult(context: ConfirmedDetectionContext): CompletenessResult {
@@ -247,6 +267,7 @@ export class CompletenessService {
       stored.lifecycleState = transition(stored.lifecycleState, 'awaiting_scope');
       stored.result.status = 'awaiting_scope';
       stored.result.progress = { stage: 'awaiting_scope', files: result.scannedFileCount, bytes: result.scannedBytes, findings: result.findings.length };
+      void this.persist(stored);
       this.recordEvent(stored, 'COMPLETENESS_SCAN_COMPLETED', 'Completeness evidence was finalized and is ready for scope selection.');
       this.recordEvent(stored, result.projectStatus === 'working' ? 'PROJECT_MARKED_COMPLETE' : 'PROJECT_MARKED_PARTIAL', `Project completeness status: ${result.projectStatus}.`);
     } catch (reason: unknown) {
@@ -263,6 +284,7 @@ export class CompletenessService {
       stored.result.status = 'failed';
       stored.result.progress = { ...stored.result.progress, stage: 'failed' };
       stored.result.error = { code: 'COMPLETENESS_FAILED', message: safeErrorMessage(reason) };
+      void this.persist(stored);
       this.recordEvent(stored, 'COMPLETENESS_SCAN_FAILED', stored.result.error.message, false);
     }
   }

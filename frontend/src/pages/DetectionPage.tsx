@@ -76,7 +76,7 @@ export function DetectionPage() {
 
   if (!repository && !runId) return (
        <section className="page-layout empty-page" aria-labelledby="detection-title">
-      <span className="eyebrow">Step 2 of 6</span><h1 id="detection-title">Select a repository first.</h1>
+      <span className="eyebrow">Step 2 of 9</span><h1 id="detection-title">Select a repository first.</h1>
       <p className="muted">Choose an authorized repository to create an immutable snapshot.</p>
       <Link className="primary-button" to="/project/select">Open repository selection</Link>
     </section>
@@ -110,7 +110,7 @@ export function DetectionPage() {
   );
   return (
     <section ref={contentRef} className="page-layout detection-layout" aria-labelledby="detection-title">
-       <div className="page-intro"><span className="eyebrow">Step 2 of 6 · read-only intake</span><h1 id="detection-title">Inspect an immutable snapshot.</h1></div>
+       <div className="page-intro"><span className="eyebrow">Step 2 of 9 · read-only intake</span><h1 id="detection-title">Inspect an immutable snapshot.</h1></div>
       {viewport.compact ? <PanelTabs label="Intake views" value={view} onChange={setView} tabs={[{ id: 'snapshot', label: 'Snapshot' }, { id: 'scan', label: 'Scan' }]}>{view === 'snapshot' ? snapshotPanel : progressPanel}</PanelTabs> : <div className="detection-columns">{snapshotPanel}{progressPanel}</div>}
     </section>
   );

@@ -218,6 +218,107 @@ export interface BaselineResponse {
   requestId: string;
 }
 
+export type WorkflowApprovalState = 'awaiting_approval' | 'approved' | 'rejected';
+export type WorkflowPlanStatus = 'awaiting_approval' | 'approved' | 'running' | 'blocked' | 'validated' | 'failed' | 'cancelled';
+export type EnhancementRunStatus = 'analyzing' | 'awaiting_review' | 'approved' | 'running' | 'blocked' | 'validated' | 'failed' | 'cancelled';
+
+export interface WorkflowOperation {
+  kind: 'add' | 'modify' | 'delete';
+  path: string;
+  contentHash: string | null;
+  contentBytes: number | null;
+}
+
+export interface RepairItem {
+  id: string;
+  planId: string;
+  sourceCheckId: string;
+  category: string;
+  title: string;
+  reason: string;
+  risk: 'low' | 'medium' | 'high';
+  affectedPaths: string[];
+  expectedTests: string[];
+  approvalState: WorkflowApprovalState;
+  operations: WorkflowOperation[];
+  workerStatus: 'pending' | 'applied' | 'blocked';
+}
+
+export interface RepairPlan {
+  planId: string;
+  baselineRunId: string;
+  completenessRunId: string;
+  snapshotId: string;
+  baseCommit: string;
+  ownerUserId: string;
+  status: WorkflowPlanStatus;
+  branchName: string | null;
+  items: RepairItem[];
+  validationId: string | null;
+  warning: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Recommendation {
+  id: string;
+  enhancementRunId: string;
+  category: 'ui_ux' | 'architecture' | 'security' | 'performance' | 'testing' | 'documentation';
+  title: string;
+  currentProblem: string;
+  suggestedSolution: string;
+  risk: 'low' | 'medium' | 'high';
+  affectedPaths: string[];
+  affectedAreas: string[];
+  expectedTests: string[];
+  approvalState: WorkflowApprovalState;
+  operations: WorkflowOperation[];
+}
+
+export interface EnhancementRun {
+  enhancementRunId: string;
+  baselineRunId: string;
+  completenessRunId: string;
+  snapshotId: string;
+  baseCommit: string;
+  ownerUserId: string;
+  scopeMode: ScopeMode;
+  status: EnhancementRunStatus;
+  recommendations: Recommendation[];
+  warning: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChangeManifest {
+  manifestId: string;
+  version2RunId: string;
+  baseCommit: string;
+  targetBranch: string;
+  added: string[];
+  modified: string[];
+  deleted: string[];
+  approvedRepairIds: string[];
+  approvedRecommendationIds: string[];
+  rollbackRef: string | null;
+  diffHash: string;
+  diffSummary: string[];
+  generatedAt: string;
+}
+
+export interface PullRequestReceipt {
+  pullRequestId: string;
+  version2RunId: string;
+  owner: string;
+  repository: string;
+  branchName: string;
+  title: string;
+  body: string;
+  url: string | null;
+  status: 'prepared' | 'created' | 'failed';
+  createdAt: string;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string | null;
@@ -243,6 +344,13 @@ interface ErrorPayload {
 
 export const SESSION_EXPIRED_EVENT = 'obsidian:session-expired';
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/$/, '');
+
+function apiUrl(input: RequestInfo | URL): RequestInfo | URL {
+  if (!API_BASE_URL || typeof input !== 'string' || !input.startsWith('/')) return input;
+  return `${API_BASE_URL}${input}`;
+}
+
 function checkAborted(signal?: AbortSignal | null): void {
   if (signal?.aborted) throw new DOMException('The request was aborted.', 'AbortError');
 }
@@ -257,8 +365,8 @@ async function readJson<T>(response: Response): Promise<T | null> {
 
 async function requestJson<T>(input: RequestInfo | URL, init: RequestInit = {}, allowEmpty = false): Promise<T> {
   checkAborted(init.signal);
-  const response = await fetch(input, {
-    credentials: 'same-origin',
+  const response = await fetch(apiUrl(input), {
+    credentials: API_BASE_URL ? 'include' : 'same-origin',
     ...init,
   });
   const payload = await readJson<T & ErrorPayload>(response);
@@ -434,6 +542,60 @@ export async function cancelBaseline(runId: string, signal?: AbortSignal): Promi
     body: JSON.stringify({}),
     signal,
   });
+}
+
+type WorkflowOperationInput = { kind: 'add' | 'modify' | 'delete'; path: string; content?: string };
+
+export async function createRepairPlan(baselineRunId: string, signal?: AbortSignal): Promise<{ plan: RepairPlan; requestId: string }> {
+  return requestJson('/api/v1/workflow/repairs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baselineRunId }), signal });
+}
+
+export async function getRepairPlan(planId: string, signal?: AbortSignal): Promise<{ plan: RepairPlan; requestId: string }> {
+  return requestJson(`/api/v1/workflow/repairs/${encodeURIComponent(planId)}`, { signal });
+}
+
+export async function approveRepairItem(planId: string, itemId: string, approved: boolean, operations?: WorkflowOperationInput[], signal?: AbortSignal): Promise<{ plan: RepairPlan; requestId: string }> {
+  return requestJson(`/api/v1/workflow/repairs/${encodeURIComponent(planId)}/items/${encodeURIComponent(itemId)}/approval`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approved, operations }), signal });
+}
+
+export async function startRepair(planId: string, signal?: AbortSignal): Promise<{ plan: RepairPlan; requestId: string }> {
+  return requestJson(`/api/v1/workflow/repairs/${encodeURIComponent(planId)}/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}), signal });
+}
+
+export async function validateRepair(planId: string, signal?: AbortSignal): Promise<{ plan: RepairPlan; receipt: { validationId: string; status: string; checks: Array<{ id: string; label: string; status: string; summary: string }> }; requestId: string }> {
+  return requestJson(`/api/v1/workflow/repairs/${encodeURIComponent(planId)}/validate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}), signal });
+}
+
+export async function publishRepairBranch(planId: string, signal?: AbortSignal): Promise<{ plan: RepairPlan; requestId: string }> {
+  return requestJson(`/api/v1/workflow/repairs/${encodeURIComponent(planId)}/publish`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}), signal });
+}
+
+export async function createEnhancementRun(baselineRunId: string, signal?: AbortSignal): Promise<{ run: EnhancementRun; requestId: string }> {
+  return requestJson('/api/v1/workflow/enhancements', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baselineRunId }), signal });
+}
+
+export async function getEnhancementRun(runId: string, signal?: AbortSignal): Promise<{ run: EnhancementRun; requestId: string }> {
+  return requestJson(`/api/v1/workflow/enhancements/${encodeURIComponent(runId)}`, { signal });
+}
+
+export async function approveRecommendation(runId: string, recommendationId: string, approved: boolean, operations?: WorkflowOperationInput[], signal?: AbortSignal): Promise<{ run: EnhancementRun; requestId: string }> {
+  return requestJson(`/api/v1/workflow/enhancements/${encodeURIComponent(runId)}/recommendations/${encodeURIComponent(recommendationId)}/approval`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approved, operations }), signal });
+}
+
+export async function startVersion2(runId: string, signal?: AbortSignal): Promise<{ enhancement: EnhancementRun; version2RunId: string; status: string; manifest: ChangeManifest | null; requestId: string }> {
+  return requestJson(`/api/v1/workflow/enhancements/${encodeURIComponent(runId)}/version2`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}), signal });
+}
+
+export async function preparePullRequest(version2RunId: string, signal?: AbortSignal): Promise<{ pullRequest: PullRequestReceipt; requestId: string }> {
+  return requestJson(`/api/v1/workflow/version2/${encodeURIComponent(version2RunId)}/pull-request`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}), signal });
+}
+
+export async function createPullRequest(version2RunId: string, signal?: AbortSignal): Promise<{ pullRequest: PullRequestReceipt; requestId: string }> {
+  return requestJson(`/api/v1/workflow/version2/${encodeURIComponent(version2RunId)}/pull-request/create`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}), signal });
+}
+
+export async function validateVersion2(version2RunId: string, signal?: AbortSignal): Promise<{ status: string; manifest: ChangeManifest; receipt: { validationId: string; status: string }; requestId: string }> {
+  return requestJson(`/api/v1/workflow/version2/${encodeURIComponent(version2RunId)}/validate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}), signal });
 }
 
 export function isTerminalDetectionStatus(status: DetectionStatus): boolean {

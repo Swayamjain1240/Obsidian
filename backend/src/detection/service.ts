@@ -10,6 +10,7 @@ import type { SnapshotRecord } from '../intake/snapshot.js';
 import { scanWorkspace, type ScanOptions, type ScanResult } from './scanner.js';
 import { type DetectionResult, type DetectionStatus } from './types.js';
 import { detectionPolicyVersion } from './adapters.js';
+import type { DurableRunStore } from '../workflow/run-store.js';
 
 export interface DetectionEngine {
   extract(
@@ -104,6 +105,7 @@ export class DetectionService {
     private readonly handleStore: SnapshotHandleStore,
     engine?: Partial<DetectionEngine>,
     private readonly eventSink?: DetectionEventSink,
+    private readonly runStore?: DurableRunStore,
   ) {
     this.engine = {
       extract: (snapshot, policy, onProgress, signal) => extractSnapshot(snapshot, policy, onProgress, signal),
@@ -139,6 +141,7 @@ export class DetectionService {
       },
     };
     this.runs.set(stored.result.runId, stored);
+    void this.persist(stored);
     this.recordEvent(stored, 'DETECTION_STARTED', 'Detection queued for the immutable snapshot.', 'detection');
     void this.execute(stored);
     return publicResult(stored.result);
@@ -146,6 +149,17 @@ export class DetectionService {
 
   public get(ownerUserId: string, runId: string): DetectionResult {
     return publicResult(this.ownedRun(ownerUserId, runId).result);
+  }
+
+  public async getDurable(ownerUserId: string, runId: string): Promise<DetectionResult> {
+    const stored = this.runs.get(runId);
+    if (stored) {
+      if (stored.ownerUserId !== ownerUserId) throw new DetectionServiceError('DETECTION_NOT_FOUND', 'Detection run was not found.', 404);
+      return publicResult(stored.result);
+    }
+    const persisted = await this.runStore?.get<DetectionResult>(ownerUserId, runId);
+    if (persisted) return publicResult(persisted);
+    throw new DetectionServiceError('DETECTION_NOT_FOUND', 'Detection run was not found.', 404);
   }
 
   public confirmedContext(ownerUserId: string, runId: string): ConfirmedDetectionContext {
@@ -181,6 +195,7 @@ export class DetectionService {
     stored.lifecycleState = transition(stored.lifecycleState, 'stack_confirmed');
     stored.result.status = 'confirmed';
     stored.result.progress = { ...stored.result.progress, stage: 'confirmed' };
+    void this.persist(stored);
     this.recordEvent(stored, 'STACK_CONFIRMED', 'Stack confirmation was saved for analysis only.', 'detection');
     return publicResult(stored.result);
   }
@@ -204,6 +219,7 @@ export class DetectionService {
     stored.result.status = 'cancelled';
     stored.result.progress = { ...stored.result.progress, stage: 'cancelled' };
     stored.result.error = { code: 'DETECTION_CANCELLED', message: 'Detection was cancelled. The immutable snapshot remains available.' };
+    void this.persist(stored);
     this.recordEvent(stored, 'RUN_CANCELLED', 'Detection was cancelled before confirmation.', 'detection');
     return publicResult(stored.result);
   }
@@ -211,6 +227,10 @@ export class DetectionService {
   public listEvents(ownerUserId: string, runId: string): SystemEvent[] {
     const stored = this.ownedRun(ownerUserId, runId);
     return this.events.filter((event) => event.runId === stored.result.runId).map((event) => ({ ...event, affectedPaths: [...event.affectedPaths] }));
+  }
+
+  private async persist(stored: StoredRun): Promise<void> {
+    await this.runStore?.save(stored.ownerUserId, stored.result.runId, 'detection', publicResult(stored.result));
   }
 
   private createRun(ownerUserId: string, snapshot: SnapshotRecord, sessionId = ownerUserId): StoredRun {
@@ -294,6 +314,7 @@ export class DetectionService {
       stored.lifecycleState = transition(stored.lifecycleState, 'awaiting_stack_confirmation');
       stored.result.status = 'awaiting_confirmation';
       stored.result.progress = { ...stored.result.progress, stage: 'awaiting_confirmation' };
+      void this.persist(stored);
       this.recordEvent(stored, 'STACK_CONFIRMATION_REQUIRED', 'Evidence was finalized and is ready for user confirmation.', 'detection');
     } catch (reason: unknown) {
       if (stored.result.status === 'cancelled' || stored.controller.signal.aborted) {
@@ -309,6 +330,7 @@ export class DetectionService {
       stored.result.status = 'failed';
       stored.result.progress = { ...stored.result.progress, stage: 'failed' };
       stored.result.error = { code: 'DETECTION_FAILED', message: safeErrorMessage(reason) };
+      void this.persist(stored);
       this.recordEvent(stored, 'DETECTION_FAILED', stored.result.error.message, 'detection');
     }
   }

@@ -2,130 +2,301 @@
 
 > Safely analyze, repair, and enhance existing software projects into a reviewable Version 2.
 
-Obsidian is a review-first, multi-language project enhancement platform. A developer connects a GitHub repository, confirms the detected technology stack, checks whether the project is complete, validates the existing baseline, reviews repair suggestions, and then approves carefully scoped enhancements.
+Obsidian is a review-first, multi-language project enhancement platform. It connects to a GitHub repository, captures an immutable snapshot, detects the stack from evidence, checks completeness, validates the baseline, and prepares carefully scoped repair and enhancement work without silently changing the original project.
 
-## Core promise
+![Status](https://img.shields.io/badge/status-Part%206%20complete-7c5ce0)
+![Node](https://img.shields.io/badge/node-%3E%3D22.19.0-3c873a)
+![License](https://img.shields.io/badge/license-TBD-lightgrey)
 
-**The user's original project is never silently changed.** Obsidian works from an immutable snapshot and creates separate repair or enhancement branches. Every file, folder, component, button, and behavior change is explained, reviewable, reversible, and approved by the user before it is applied.
+## Contents
+
+- [What is implemented](#what-is-implemented)
+- [Quick start](#quick-start)
+- [Environment files](#environment-files)
+- [Development commands](#development-commands)
+- [Service URLs](#service-urls)
+- [GitHub OAuth setup](#github-oauth-setup)
+- [Architecture](#architecture)
+- [Product flow](#product-flow)
+- [Safety model](#safety-model)
+- [Testing and verification](#testing-and-verification)
+- [Troubleshooting](#troubleshooting)
+- [Project documentation](#project-documentation)
+- [Roadmap](#roadmap)
+
+## What is implemented
+
+Parts 1–6 are complete for the current scope:
+
+- GitHub OAuth session boundary and authenticated repository selection.
+- Branch/commit resolution and immutable repository snapshots.
+- Safe bounded archive extraction and verified extraction manifests.
+- Evidence-based multi-language stack detection with explicit confirmation.
+- Completeness scanning for partial, placeholder, unimplemented, broken-import, configuration, test, and conservative static route-reference evidence.
+- Explicit `FULL` and `EXISTING_ONLY` scope selection.
+- Adapter-based baseline check discovery and bounded execution.
+- Explicit baseline outcomes: passed, failed, timed out, cancelled, partial, and not available.
+- Owner-bound lifecycle routes, safe system events, polling, cancellation, review screens, and responsive desktop/tablet/mobile layouts.
+- Repair plans with approval, isolated change workspaces, repair validation receipts, enhancement recommendations, recommendation approval, Version 2 manifests, rollback references, validation, branch/commit delivery, and pull-request creation boundaries.
+- Durable MongoDB-backed workflow state and event persistence, verified command allowlists, bounded change workers, secret-pattern scanning, and expanded language-adapter coverage.
+
+AI provider calls, hardened OS-level worker isolation, and richer adapter-specific commands remain optional hardening layers.
+
+## Quick start
+
+### Requirements
+
+- Node.js `22.19.0` or newer.
+- npm bundled with Node.js.
+- MongoDB available at the URI configured in `backend/.env`.
+- A GitHub OAuth App if you want to use authenticated repository flows.
+
+### Install
+
+```bash
+npm install
+```
+
+### Create local environment files
+
+macOS/Linux:
+
+```bash
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+```
+
+Windows PowerShell:
+
+```powershell
+Copy-Item backend/.env.example backend/.env
+Copy-Item frontend/.env.example frontend/.env
+```
+
+Edit `backend/.env` with your local MongoDB and GitHub OAuth values. The frontend template can remain unchanged for local development because Vite proxies `/api` and `/auth` to the backend.
+
+### Start both services
+
+```bash
+npm run dev
+```
+
+This single command starts the Vite frontend and Express backend together. Their logs are prefixed with `[frontend]` and `[backend]`; press `Ctrl+C` once to stop both processes.
+
+## Environment files
+
+Configuration is intentionally split by service:
+
+| File | Purpose | Commit it? |
+|---|---|---:|
+| `backend/.env.example` | Safe backend configuration template | Yes |
+| `backend/.env` | Local backend values and secrets | No |
+| `frontend/.env.example` | Safe browser/Vite configuration template | Yes |
+| `frontend/.env` | Local frontend values | No |
+
+### Backend configuration
+
+Required values:
+
+| Variable | Example | Description |
+|---|---|---|
+| `MONGODB_URI` | `mongodb://127.0.0.1:27017/obsidian` | MongoDB connection URI. |
+| `FRONTEND_ORIGIN` | `http://localhost:5173` | Allowed browser origin. |
+
+Common local values:
+
+| Variable | Default | Description |
+|---|---:|---|
+| `PORT` | `4000` | Backend HTTP port. |
+| `AI_PROVIDER` | `disabled` | AI remains disabled until explicitly configured. |
+| `GITHUB_OAUTH_SCOPES` | `read:user,repo` | GitHub permissions requested by OAuth. |
+| `SNAPSHOT_ROOT` | `.obsidian-workspaces` | Local immutable snapshot workspace. |
+| `BASELINE_MAX_CHECKS` | `12` | Maximum checks in one baseline plan. |
+| `BASELINE_CHECK_TIMEOUT_MS` | `120000` | Maximum runtime of one check. |
+| `BASELINE_MAX_OUTPUT_BYTES` | `65536` | Output accounting limit; raw output is not returned. |
+
+Optional secrets are commented out in the template so copying it does not create invalid empty secret values. Uncomment and set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_CALLBACK_URL`, and `AUTH_SESSION_SECRET` when enabling GitHub OAuth.
+
+### Frontend configuration
+
+| Variable | Local value | Description |
+|---|---|---|
+| `VITE_API_BASE_URL` | empty | Uses the Vite proxy for `/api` and `/auth`. Set an absolute backend URL only when the frontend is hosted separately. |
+
+Only `VITE_*` values are exposed to browser code. Never place credentials, tokens, or private keys in `frontend/.env`.
+
+## Development commands
+
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Start frontend and backend together. |
+| `npm run dev:frontend` | Start only the Vite frontend. |
+| `npm run dev:backend` | Start only the Express backend. |
+| `npm run test` | Run all workspace unit/integration tests. |
+| `npm run typecheck` | Typecheck frontend, backend, and AI services. |
+| `npm run build` | Build all workspaces. |
+| `npm run audit` | Run the high-severity npm audit. |
+| `npm run e2e --workspace frontend` | Run Chromium viewport tests. |
+| `npm run lint` | Run the configured TypeScript lint checks. |
+
+Workspace-specific commands can be run with npm's workspace flag, for example `npm run test --workspace backend`.
+
+## Service URLs
+
+When using the default development configuration:
+
+| Service | URL |
+|---|---|
+| Frontend | <http://localhost:5173> |
+| Backend live health | <http://localhost:4000/health/live> |
+| Backend readiness | <http://localhost:4000/health/ready> |
+| Backend API status | <http://localhost:4000/api/v1/status> |
+| GitHub OAuth callback | <http://localhost:4000/auth/github/callback> |
+
+The readiness endpoint reports whether runtime dependencies are connected. The live endpoint only confirms that the backend process is responding.
+
+## GitHub OAuth setup
+
+1. Create or open a GitHub OAuth App.
+2. Set the authorization callback URL to `http://localhost:4000/auth/github/callback`.
+3. Set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `backend/.env`.
+4. Set a random `AUTH_SESSION_SECRET` with at least 32 characters.
+5. Restart `npm run dev`.
+
+GitHub remains the only external provider in the implemented flow. No AI provider is required for local startup.
+
+## Architecture
+
+```text
+Browser / React + Vite (frontend :5173)
+        │  /api and /auth proxy
+        ▼
+Express API (backend :4000)
+        │
+        ├── GitHub OAuth and repository intake
+        ├── Immutable snapshot and verified extraction
+        ├── Evidence-based stack detection
+        ├── Completeness and scope review
+        └── Bounded baseline discovery/execution
+        │
+        ├── MongoDB connection boundary
+        └── Local immutable workspace (.obsidian-workspaces/)
+```
+
+The `AIServices` workspace is present for the future provider boundary and currently keeps AI disabled by default.
+
+Important source locations:
+
+- `frontend/src/App.tsx` — routes and wizard navigation.
+- `frontend/src/api.ts` — typed browser API client.
+- `frontend/src/pages/` — repository, detection, confirmation, completeness, baseline, repair, enhancement, and Version 2 phases.
+- `backend/src/app.ts` — Express middleware and route mounting.
+- `backend/src/intake/` — repository snapshot and extraction boundaries.
+- `backend/src/detection/` — stack evidence detection.
+- `backend/src/completeness/` — completeness findings and scope selection.
+- `backend/src/baseline/` — adapter discovery, bounded runner, sandbox policy, orchestration, and routes.
+- `backend/src/workflow/` — repair plans, approvals, change workspaces, recommendations, manifests, validation, and delivery.
+- `backend/src/security/secret-scanner.ts` — bounded secret-pattern scanning without returning secret values.
+- `scripts/dev.mjs` — cross-platform two-service development launcher.
 
 ## Product flow
 
 ```text
 GitHub Login
     ↓
-Home and Repository Selection
+Repository Selection → Immutable Snapshot
     ↓
-Evidence-Based Stack Detection
+Evidence-Based Stack Detection → User Confirmation
     ↓
-User Stack Confirmation
+Completeness Review → FULL or EXISTING_ONLY Scope
     ↓
-Project Completeness Check
+Baseline Check Discovery and Execution
     ↓
-Choose: Complete Project First | Enhance Existing Parts Only
+Repair Review → Approval → Repair Validation
     ↓
-Baseline Build, Test, Runtime, and Security Checks
+Enhancement Analysis → Recommendation Approval
     ↓
-Approved Repair Plan and Repair Validation
-    ↓
-Enhancement Recommendations
-    ↓
-Exact File / Component / UI / Folder Review
-    ↓
-User Approval
-    ↓
-Enhanced Version 2 Branch
-    ↓
-Validation, Diff, and Pull Request
+Version 2 Change Workspace → Manifest Validation → Branch / Commit → Pull Request
 ```
 
-## Incomplete-project handling
+Obsidian distinguishes `Working`, `Working with issues`, `Broken`, `Partial`, `Placeholder`, `Not implemented`, and `Not available`. It never turns an absent command or unknown technology into a false pass or guessed fact.
 
-Obsidian distinguishes between:
+## Safety model
 
-- **Working** — relevant checks pass.
-- **Working with issues** — implemented and testable, but defective.
-- **Broken** — implemented behavior fails.
-- **Partial** — some implementation exists.
-- **Placeholder** — a visible shell or dummy content exists.
-- **Not implemented** — required code or behavior is absent.
-- **Not available** — no suitable check or tool exists.
+- The original repository is never silently changed.
+- Analysis reads an immutable snapshot and verified extraction manifest.
+- Repository code is not executed during detection or completeness scanning.
+- Baseline commands run with bounded time/output and a sanitized environment; stronger OS-level worker isolation is a planned hardening phase.
+- API keys, OAuth tokens, passwords, source excerpts, and raw command output stay out of responses and logs.
+- Protected routes enforce server-side ownership; mutating routes enforce the configured frontend origin.
+- Unknown or ambiguous technologies remain explicitly not detected.
+- Missing checks are reported as `Not available`, not as failures or passes.
 
-If a project is incomplete, the user chooses one of two modes:
+## Testing and verification
 
-### Complete Project First
+The repository's delivery checks are:
 
-Pause enhancement and create a completion plan for missing features. Obsidian does not pretend placeholder or absent functionality is complete.
+```bash
+npm run test
+npm run typecheck
+npm run build
+npm run audit
+npm run e2e --workspace frontend
+git diff --check
+```
 
-### Enhance Existing Parts Only
+Authenticated screens follow a one-viewport policy. The Playwright suite checks confirmation, completeness, and baseline screens at desktop, tablet, and mobile sizes for horizontal and vertical overflow.
 
-Analyze, repair, and improve only areas that already exist. This may include existing UI, bugs, errors, imports, naming, folder organization, tests, and documentation. Missing product features are excluded rather than invented.
+## Troubleshooting
 
-## Multi-language support
+### `npm run dev` exits immediately
 
-The core platform is language-neutral and uses verified adapters for project-specific evidence and commands. Initial adapter targets include JavaScript/TypeScript, Python, Java, Go, PHP, C#/.NET, Rust, Dart/Flutter, and Ruby. Unknown or ambiguous technologies remain **Not detected**; Obsidian never guesses.
+Run `npm install` from the repository root and make sure Node.js is at least `22.19.0`. The launcher starts `npm run dev` inside both `frontend/` and `backend/`.
 
-## Safety and security commitments
+### Backend reports invalid configuration
 
-1. API keys, tokens, passwords, and secrets stay out of source control and logs.
-2. Required environment variables are validated without exposing their values.
-3. Private-route architecture is reviewed and preserved.
-4. Authentication architecture is explicit and prepared for secure implementation.
-5. Server-side authorization is separated from client-side visibility.
-6. Forms and inputs are validated and sanitized.
-7. Unsafe HTML rendering and XSS risks are blocked.
-8. Rate limiting is planned or implemented at appropriate boundaries.
-9. APIs use a consistent secure response and error format.
-10. CORS uses a strict allow list.
-11. Security headers are configured.
-12. Production debug mode is disabled.
-13. Dependencies are security-checked before upgrades.
-14. Unused packages are removed only after verification.
-15. Exposed and private files are checked.
-16. Database credentials and configuration remain secure.
-17. Passwords must use Argon2 or bcrypt, never plaintext.
-18. The current Git tree and history are scanned for leaked secrets.
-19. A security audit is performed before each coherent delivery part is finished.
-20. Every coherent feature or roughly 300 meaningful lines follows: test → inspect diff → commit → push.
-21. Security is continuous, not a final patch.
-22. Any new external API requires provider, purpose, API-key name, environment variable, and backend/frontend location to be documented before use.
-23. Every feature is tested after implementation.
-24. README and project documentation stay synchronized with real behavior.
-25. Authenticated application screens obey the one-viewport rule.
+Confirm that `backend/.env` contains non-empty `MONGODB_URI` and `FRONTEND_ORIGIN`. Optional OAuth variables should be omitted until configured rather than left as empty assignments.
 
-## One-viewport rule
+### The browser cannot reach the API
 
-Authenticated screens must fit in one viewport without page-level vertical scrolling. This is not achieved by clipping content with `overflow: hidden`.
+For local development, keep `VITE_API_BASE_URL` empty and use the Vite proxy. Confirm the backend is running on port 4000 and that `FRONTEND_ORIGIN=http://localhost:5173` matches the browser URL exactly.
 
-- Long forms become multi-step wizards.
-- Long lists and tables use pagination.
-- Many sections use tabs or routes.
-- Many charts use switchable tabs.
-- Mobile shows one primary panel at a time.
-- Desktop, tablet, and mobile must be tested.
-- An intentionally designed marketing landing page may scroll.
+### Port 4000 or 5173 is already in use
 
-## Development discipline
+Stop the existing process or change `PORT` in `backend/.env`. The frontend development server is configured for port 5173 and uses strict port binding.
 
-The project is divided into six implementation parts. After each part, a **Duck review** compares the implementation against the four control documents in `docs/project-enhancer/` and records aligned items, off-track items, missing controls, evidence, unresolved decisions, and the next corrective action.
+### GitHub sign-in is unavailable
 
-The target is a meaningful commit history across the complete project, not artificial commit spam. No part is considered complete until its tests, diff, security review, documentation, and Duck review are complete.
+Configure the OAuth values in `backend/.env`, register the exact callback URL, restart the backend, and check `/health/live`.
 
-## Control documents
+## Project documentation
+
+The four control documents define the product and security boundaries:
 
 - [Architecture](docs/project-enhancer/01-architecture.md)
 - [Session / System Log](docs/project-enhancer/02-session-system-log.md)
 - [Master Product Specification](docs/project-enhancer/03-master-product-spec.md)
 - [System Design](docs/project-enhancer/04-system-design.md)
-- [Architecture PDF](docs/project-enhancer/pdf/architecture.pdf)
-- [Session / System Log PDF](docs/project-enhancer/pdf/session-system-log.pdf)
-- [Master Product Specification PDF](docs/project-enhancer/pdf/master-product-spec.pdf)
-- [System Design PDF](docs/project-enhancer/pdf/system-design.pdf)
 
-## Status
+Duck reviews record evidence and deferred decisions for each completed part:
 
-Part 6 is complete for scoped baseline orchestration. The repository now includes a GitHub OAuth App boundary, authenticated repository selection, verified branch-commit resolution, bounded archive download, immutable local snapshot storage, safe streaming extraction, immutable extraction manifests, bounded evidence-based multi-language detection, authenticated detection lifecycle routes, explicit stack confirmation/rescan/cancellation, bounded completeness evidence scanning including conservative static route-reference checks, explicit `FULL` / `EXISTING_ONLY` scope selection, adapter-based baseline check discovery, bounded command execution with explicit pass/fail/not-available outcomes, baseline lifecycle events and authenticated routes, and responsive review-first screens with GSAP/Three.js fallbacks. Repair workers, enhancement workers, AI provider calls, pull-request delivery, stronger worker isolation, and durable multi-instance run storage remain future phases.
+- [Part 1](docs/project-enhancer/part-1-duck-review.md)
+- [Part 2](docs/project-enhancer/part-2-duck-review.md)
+- [Part 3](docs/project-enhancer/part-3-duck-review.md)
+- [Part 4](docs/project-enhancer/part-4-duck-review.md)
+- [Part 5](docs/project-enhancer/part-5-duck-review.md)
+- [Part 6](docs/project-enhancer/part-6-duck-review.md)
 
-See the [Part 1 Duck Review](docs/project-enhancer/part-1-duck-review.md), [Part 2 Duck Review](docs/project-enhancer/part-2-duck-review.md), [Part 3 Duck Review](docs/project-enhancer/part-3-duck-review.md), [Part 4 Duck Review](docs/project-enhancer/part-4-duck-review.md), [Part 5 Duck Review](docs/project-enhancer/part-5-duck-review.md), and [Part 6 Duck Review](docs/project-enhancer/part-6-duck-review.md) for evidence, the 25-point reviews, deferred scope, and corrective actions.
+## Current delivery boundary
+
+The post-baseline workflow is implemented behind authenticated routes under `/api/v1/workflow`:
+
+- Repair plan creation, item approval/rejection, isolated workspace application, and validation receipts.
+- Enhancement analysis from existing completeness areas, recommendation approval, and Version 2 start.
+- Version 2 change manifests, rollback references, structural/command validation, pull-request preparation, and GitHub branch/commit/pull-request delivery.
+- Workflow state and system events persist through the MongoDB boundary while retaining a bounded in-memory read-through cache.
+
+The worker policy blocks unverified executables, keeps commands inside the change workspace, strips inherited environment variables, disables network-dependent package-manager behavior where supported, and enforces time/output limits. OS-level memory and process quotas remain deployment hardening controls.
 
 ## License
 

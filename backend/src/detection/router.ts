@@ -47,9 +47,9 @@ export function createDetectionRouter(config: AppConfig, sessionStore: SessionSt
     } catch (reason: unknown) { respondError(response, reason); }
   });
 
-  router.get('/:runId', (request, response) => {
+  router.get('/:runId', async (request, response) => {
     try {
-      response.json({ run: detection.get(owner(request), request.params.runId), requestId: response.locals.requestId });
+      response.json({ run: await detection.getDurable(owner(request), request.params.runId), requestId: response.locals.requestId });
     } catch (reason: unknown) { respondError(response, reason); }
   });
 
