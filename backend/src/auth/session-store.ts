@@ -13,9 +13,15 @@ export interface GithubSession {
 export class SessionStore {
   private readonly sessions = new Map<string, GithubSession>();
 
-  constructor(private readonly secret: string, private readonly ttlMs = 8 * 60 * 60 * 1000) {}
+  constructor(private readonly secret: string, private readonly ttlMs = 8 * 60 * 60 * 1000, private readonly maxSessions = 10_000) {}
 
   create(input: Omit<GithubSession, 'sessionId' | 'expiresAt'>): string {
+    for (const [key, session] of this.sessions) if (session.expiresAt <= Date.now()) this.sessions.delete(key);
+    while (this.sessions.size >= this.maxSessions) {
+      const oldest = this.sessions.keys().next().value as string | undefined;
+      if (!oldest) break;
+      this.sessions.delete(oldest);
+    }
     const sessionId = randomBytes(32).toString('base64url');
     this.sessions.set(sessionId, { ...input, sessionId, expiresAt: Date.now() + this.ttlMs });
     return this.sign(sessionId);

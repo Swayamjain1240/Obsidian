@@ -36,7 +36,7 @@ interface GithubTokenResponse {
 }
 
 export class GithubApiClient {
-  constructor(private readonly accessToken: string) {}
+  public constructor(private readonly accessToken: string, private readonly timeoutMs = 15_000) {}
 
   getAccessToken(): string {
     return this.accessToken;
@@ -49,17 +49,23 @@ export class GithubApiClient {
     redirectUri: string;
     codeVerifier: string;
   }): Promise<GithubApiClient> {
-    const response = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_id: input.clientId,
-        client_secret: input.clientSecret,
-        code: input.code,
-        redirect_uri: input.redirectUri,
-        code_verifier: input.codeVerifier,
-      }),
-    });
+    let response: Response;
+    try {
+      response = await fetch('https://github.com/login/oauth/access_token', {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: input.clientId,
+          client_secret: input.clientSecret,
+          code: input.code,
+          redirect_uri: input.redirectUri,
+          code_verifier: input.codeVerifier,
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch {
+      throw new Error('GitHub token exchange failed.');
+    }
 
     if (!response.ok) {
       throw new Error('GitHub token exchange failed.');
@@ -138,14 +144,20 @@ export class GithubApiClient {
   async downloadRepositoryArchive(repository: { owner: string; name: string; branch: string; commitSha?: string }, maxBytes: number): Promise<Uint8Array> {
     const ref = repository.commitSha ?? repository.branch;
     const url = `https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/tarball/${encodeURIComponent(ref)}`;
-    const response = await fetch(url, {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${this.accessToken}`,
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-      redirect: 'follow',
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${this.accessToken}`,
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch {
+      throw new Error('GitHub repository archive request failed.');
+    }
 
     if (!response.ok) throw new Error('GitHub repository archive request failed.');
     const length = Number(response.headers.get('content-length') ?? 0);
@@ -186,15 +198,21 @@ export class GithubApiClient {
   }
 
   private async request<T>(url: string, init: RequestInit = {}): Promise<T> {
-    const response = await fetch(url, {
-      ...init,
-      headers: {
-        Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${this.accessToken}`,
-        'X-GitHub-Api-Version': '2022-11-28',
-        ...(init.headers ?? {}),
-      },
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        ...init,
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${this.accessToken}`,
+          'X-GitHub-Api-Version': '2022-11-28',
+          ...(init.headers ?? {}),
+        },
+        signal: init.signal ?? AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch {
+      throw new Error('GitHub API request failed.');
+    }
 
     if (!response.ok) {
       throw new Error('GitHub API request failed.');

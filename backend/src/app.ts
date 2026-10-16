@@ -40,6 +40,12 @@ export function createApp(config: AppConfig, dependencies: {
 
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
+  app.use((request, response, next) => {
+    const requestId = request.header('x-request-id') ?? crypto.randomUUID();
+    response.locals.requestId = requestId;
+    response.setHeader('x-request-id', requestId);
+    next();
+  });
   app.use(securityMiddleware(config));
   app.use(express.json({ limit: '100kb' }));
   app.use(
@@ -55,13 +61,6 @@ export function createApp(config: AppConfig, dependencies: {
       credentials: true,
     }),
   );
-  app.use((request, response, next) => {
-    const requestId = request.header('x-request-id') ?? crypto.randomUUID();
-    response.locals.requestId = requestId;
-    response.setHeader('x-request-id', requestId);
-    next();
-  });
-
   app.get('/health/live', (_request: Request, response: Response) => {
     response.json({ status: 'ok', service: 'backend', requestId: response.locals.requestId });
   });
@@ -107,7 +106,16 @@ export function createApp(config: AppConfig, dependencies: {
   });
 
   app.use((error: unknown, _request: Request, response: Response, _next: unknown) => {
-    const requestId = response.locals.requestId as string;
+    const requestId = (response.locals.requestId as string | undefined) ?? crypto.randomUUID();
+    if (response.headersSent) return;
+    if (error instanceof SyntaxError && 'body' in error) {
+      response.status(400).json(errorBody('INVALID_INPUT', 'Request JSON is invalid.', requestId));
+      return;
+    }
+    if (typeof error === 'object' && error !== null && 'type' in error && error.type === 'entity.too.large') {
+      response.status(413).json(errorBody('PAYLOAD_TOO_LARGE', 'Request payload is too large.', requestId));
+      return;
+    }
     console.error(`[${requestId}] request failed`);
     response.status(500).json(errorBody('INTERNAL_ERROR', 'An internal error occurred.', requestId));
   });

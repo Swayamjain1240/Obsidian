@@ -22,7 +22,7 @@ Obsidian is a review-first, multi-language project enhancement platform. It conn
 - [Testing and verification](#testing-and-verification)
 - [Troubleshooting](#troubleshooting)
 - [Project documentation](#project-documentation)
-- [Roadmap](#roadmap)
+- [Current delivery boundary](#current-delivery-boundary)
 
 ## What is implemented
 
@@ -40,7 +40,7 @@ Parts 1–6 are complete for the current scope:
 - Repair plans with approval, isolated change workspaces, repair validation receipts, enhancement recommendations, recommendation approval, Version 2 manifests, rollback references, validation, branch/commit delivery, and pull-request creation boundaries.
 - Durable MongoDB-backed workflow state and event persistence, verified command allowlists, bounded change workers, secret-pattern scanning, and expanded language-adapter coverage.
 
-AI provider calls, hardened OS-level worker isolation, and richer adapter-specific commands remain optional hardening layers.
+AI provider calls and richer adapter-specific commands remain optional integrations. Production baseline execution fails closed unless a verified OS/container worker is provided; the local bounded runner is intended for development and tests.
 
 ## Quick start
 
@@ -297,6 +297,8 @@ The post-baseline workflow is implemented behind authenticated routes under `/ap
 - Workflow state and system events persist through the MongoDB boundary while retaining a bounded in-memory read-through cache.
 
 The worker policy blocks unverified executables, keeps commands inside the change workspace, strips inherited environment variables, disables network-dependent package-manager behavior where supported, and enforces time/output limits. OS-level memory and process quotas remain deployment hardening controls.
+
+Production deployments must set `BASELINE_REQUIRE_ISOLATION=true` or rely on its production default. Until a verified OS/container worker is installed, repository command checks are reported as unavailable rather than executed unsafely. CI runs install, typecheck, lint, tests, audit, build, Chromium E2E, and whitespace checks through `.github/workflows/ci.yml`.
 
 ## License
 

@@ -79,7 +79,7 @@ export class ChangeWorker {
     for (const planned of plan.checks) {
       if (planned.staticResult) { checks.push({ id: planned.id, label: planned.label, status: planned.staticResult.status, summary: planned.staticResult.summary }); continue; }
       if (!planned.command) { checks.push({ id: planned.id, label: planned.label, status: 'not_available', summary: planned.summary }); continue; }
-      const result = await runBaselineCommand(planned.command, { cwd: applied.workspacePath, workspaceRoot: applied.workspacePath, timeoutMs: this.config.BASELINE_CHECK_TIMEOUT_MS, maxOutputBytes: this.config.BASELINE_MAX_OUTPUT_BYTES, maxMemoryBytes: this.config.BASELINE_MAX_MEMORY_BYTES, maxProcesses: this.config.BASELINE_MAX_PROCESSES, signal: new AbortController().signal });
+      const result = await runBaselineCommand(planned.command, { cwd: applied.workspacePath, workspaceRoot: applied.workspacePath, timeoutMs: this.config.BASELINE_CHECK_TIMEOUT_MS, maxOutputBytes: this.config.BASELINE_MAX_OUTPUT_BYTES, maxMemoryBytes: this.config.BASELINE_MAX_MEMORY_BYTES, maxProcesses: this.config.BASELINE_MAX_PROCESSES, requireIsolation: this.config.BASELINE_REQUIRE_ISOLATION, signal: new AbortController().signal });
       checks.push({ id: planned.id, label: planned.label, status: result.status === 'passed' ? 'passed' : result.status === 'not_available' ? 'not_available' : 'failed', summary: result.summary });
     }
     const status = checks.some((check) => check.status === 'failed') ? 'failed' : checks.some((check) => check.status === 'not_available') ? 'not_available' : 'passed';

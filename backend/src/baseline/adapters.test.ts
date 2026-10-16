@@ -46,7 +46,7 @@ describe('baseline adapter discovery', () => {
       expect(plan.checks.find((check) => check.id === 'node-build')?.commandLabel).toBe('npm run build');
       expect(plan.checks.find((check) => check.id === 'node-unit')?.initialStatus).toBe('queued');
       expect(JSON.stringify(plan)).not.toContain('tsc -b');
-      expect(plan.checks.find((check) => check.id === 'dependency-audit')?.initialStatus).toBe('not_available');
+      expect(plan.checks.find((check) => check.id === 'dependency-audit')?.initialStatus).toBe('queued');
     } finally {
       await rm(value.root, { recursive: true, force: true });
     }

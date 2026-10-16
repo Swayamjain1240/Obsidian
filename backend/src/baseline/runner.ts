@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 
 import type { BaselineCommandSpec } from './adapters.js';
-import { defaultSandboxPolicy, validateSandboxCommand } from './sandbox.js';
+import { validateSandboxCommand } from './sandbox.js';
 
 export type BaselineCommandStatus = 'passed' | 'failed' | 'not_available' | 'timed_out' | 'cancelled';
 
@@ -22,12 +22,16 @@ export interface BaselineCommandRunnerOptions {
   signal: AbortSignal;
   maxMemoryBytes?: number;
   maxProcesses?: number;
+  requireIsolation?: boolean;
 }
 
 function executableName(executable: string): string {
-  if (process.platform !== 'win32' || executable.endsWith('.cmd') || executable.endsWith('.exe')) return executable;
-  if (['npm', 'pnpm', 'yarn', 'bun', 'npx'].includes(executable)) return `${executable}.cmd`;
-  return executable;
+  if (process.platform !== 'win32') return executable;
+  // Windows resolves npm/pnpm/yarn shims when the bare command is passed to
+  // spawn with shell:false. Appending .cmd causes EINVAL in Node 22 on some
+  // hosts, while preserving a full path also makes the allowlist needlessly
+  // platform-specific. The sandbox validates the basename before this step.
+  return executable.replace(/^.*[\\/]/, '').replace(/\.(?:cmd|exe|bat)$/i, '');
 }
 
 function workerEnvironment(network: 'blocked' | 'registry_only' = 'blocked', maxMemoryBytes?: number): NodeJS.ProcessEnv {
@@ -71,6 +75,16 @@ export function runBaselineCommand(command: BaselineCommandSpec, options: Baseli
   const startedAt = Date.now();
   const sandbox = validateSandboxCommand(command.executable, options.cwd, options.workspaceRoot ?? options.cwd);
   if (!sandbox.ok) return Promise.resolve({ status: 'not_available', exitCode: null, durationMs: 0, outputBytes: 0, outputTruncated: false, summary: `${command.label} is not available: ${sandbox.reason}` });
+  if (options.requireIsolation) {
+    return Promise.resolve({
+      status: 'not_available',
+      exitCode: null,
+      durationMs: 0,
+      outputBytes: 0,
+      outputTruncated: false,
+      summary: `${command.label} is not available: a verified OS-level worker sandbox is required before repository execution.`,
+    });
+  }
   if (options.signal.aborted) return Promise.resolve({ status: 'cancelled', exitCode: null, durationMs: 0, outputBytes: 0, outputTruncated: false, summary: safeSummary('cancelled', command.label, null, false) });
 
   return new Promise((resolve) => {

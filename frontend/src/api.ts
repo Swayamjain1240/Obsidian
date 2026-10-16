@@ -544,7 +544,7 @@ export async function cancelBaseline(runId: string, signal?: AbortSignal): Promi
   });
 }
 
-type WorkflowOperationInput = { kind: 'add' | 'modify' | 'delete'; path: string; content?: string };
+export type WorkflowOperationInput = { kind: 'add' | 'modify' | 'delete'; path: string; content?: string };
 
 export async function createRepairPlan(baselineRunId: string, signal?: AbortSignal): Promise<{ plan: RepairPlan; requestId: string }> {
   return requestJson('/api/v1/workflow/repairs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baselineRunId }), signal });

@@ -42,7 +42,13 @@ export class WorkflowServiceError extends Error {
 function now(): string { return new Date().toISOString(); }
 
 function safePath(value: string): boolean {
-  return value.length > 0 && value.length <= 1024 && !value.includes('\0') && !value.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(value) && !value.split('/').some((part) => part === '..');
+  return value.length > 0
+    && value.length <= 1024
+    && !value.includes('\0')
+    && !value.includes('\\')
+    && !value.startsWith('/')
+    && !/^[A-Za-z]:[\\/]/.test(value)
+    && !value.split('/').some((part) => part === '..');
 }
 
 function normalizeOperations(input: readonly ChangeOperationInput[] | undefined): ChangeOperation[] {
@@ -93,6 +99,7 @@ export class WorkflowService {
   private readonly versions = new Map<string, { ownerUserId: string; status: Version2Status; enhancementRunId: string; manifest: ChangeManifest | null; receipt: PullRequestReceipt | null; operations?: ChangeOperation[] }>();
   private readonly repairs = new Map<string, AppliedWorkspace>();
   private readonly versionWorkspaces = new Map<string, AppliedWorkspace>();
+  private readonly locks = new Map<string, Promise<void>>();
   private readonly worker: ChangeWorker;
 
   public constructor(
@@ -131,19 +138,28 @@ export class WorkflowService {
   }
 
   public async approveRepairItem(ownerUserId: string, planId: string, itemId: string, approved: boolean, operations?: readonly ChangeOperationInput[]): Promise<RepairPlan> {
-    const plan = await this.requireRepair(ownerUserId, planId);
-    const item = plan.items.find((candidate) => candidate.id === itemId);
-    if (!item) throw new WorkflowServiceError('WORKFLOW_NOT_FOUND', 'Repair item was not found.', 404);
-    if (plan.status !== 'awaiting_approval') throw new WorkflowServiceError('WORKFLOW_STATE_INVALID', 'This repair plan is no longer awaiting approval.', 409);
-    item.approvalState = approved ? 'approved' : 'rejected';
-    if (approved && operations) item.operations = normalizeOperations(operations);
-    if (plan.items.every((candidate) => candidate.approvalState !== 'awaiting_approval')) plan.status = approvedItems(plan.items).length ? 'approved' : 'blocked';
-    plan.updatedAt = now();
-    await this.saveRepair(plan);
-    return publicRepairPlan(plan);
+    return this.withLock(`repair:${planId}`, async () => {
+      const plan = await this.requireRepair(ownerUserId, planId);
+      const item = plan.items.find((candidate) => candidate.id === itemId);
+      if (!item) throw new WorkflowServiceError('WORKFLOW_NOT_FOUND', 'Repair item was not found.', 404);
+      if (plan.status !== 'awaiting_approval' || item.approvalState !== 'awaiting_approval') {
+        throw new WorkflowServiceError('WORKFLOW_STATE_INVALID', 'This repair item is no longer awaiting approval.', 409);
+      }
+      const normalized = approved ? normalizeOperations(operations) : [];
+      item.approvalState = approved ? 'approved' : 'rejected';
+      if (approved) item.operations = normalized;
+      if (plan.items.every((candidate) => candidate.approvalState !== 'awaiting_approval')) plan.status = approvedItems(plan.items).length ? 'approved' : 'blocked';
+      plan.updatedAt = now();
+      await this.saveRepair(plan);
+      return publicRepairPlan(plan);
+    });
   }
 
   public async startRepair(ownerUserId: string, planId: string): Promise<RepairPlan> {
+    return this.withLock(`repair:${planId}`, () => this.startRepairUnlocked(ownerUserId, planId));
+  }
+
+  private async startRepairUnlocked(ownerUserId: string, planId: string): Promise<RepairPlan> {
     const plan = await this.requireRepair(ownerUserId, planId);
     if (plan.status !== 'approved') throw new WorkflowServiceError('WORKFLOW_STATE_INVALID', 'Approve at least one repair item before starting the repair worker.', 409);
     plan.branchName = `ai/repair/${plan.planId}`;
@@ -205,6 +221,9 @@ export class WorkflowService {
     const baseline = this.baseline.get(ownerUserId, baselineRunId);
     if (!['passed', 'partial'].includes(baseline.status)) throw new WorkflowServiceError('WORKFLOW_STATE_INVALID', 'Enhancement analysis requires baseline evidence.', 409);
     const context = this.baseline.selectedContext(ownerUserId, baselineRunId);
+    if (baseline.status === 'partial' && context.scopeMode !== 'EXISTING_ONLY') {
+      throw new WorkflowServiceError('WORKFLOW_STATE_INVALID', 'A partial baseline requires Enhance Existing Parts Only before enhancement analysis.', 409);
+    }
     const completeness = await this.completeness.get(ownerUserId, context.completenessRunId);
     const enhancementRunId = randomUUID();
     const recommendations: Recommendation[] = completeness.areas.filter((area) => area.status !== 'not_available').map((area) => ({
@@ -225,19 +244,28 @@ export class WorkflowService {
   }
 
   public async approveRecommendation(ownerUserId: string, enhancementRunId: string, recommendationId: string, approved: boolean, operations?: readonly ChangeOperationInput[]): Promise<EnhancementRun> {
-    const run = await this.requireEnhancement(ownerUserId, enhancementRunId);
-    const recommendation = run.recommendations.find((candidate) => candidate.id === recommendationId);
-    if (!recommendation) throw new WorkflowServiceError('WORKFLOW_NOT_FOUND', 'Recommendation was not found.', 404);
-    if (run.status !== 'awaiting_review') throw new WorkflowServiceError('WORKFLOW_STATE_INVALID', 'This enhancement run is no longer awaiting review.', 409);
-    recommendation.approvalState = approved ? 'approved' : 'rejected';
-    if (approved && operations) recommendation.operations = normalizeOperations(operations);
-    if (run.recommendations.every((candidate) => candidate.approvalState !== 'awaiting_approval')) run.status = approvedRecommendations(run.recommendations).length ? 'approved' : 'blocked';
-    run.updatedAt = now();
-    await this.saveEnhancement(run);
-    return publicEnhancementRun(run);
+    return this.withLock(`enhancement:${enhancementRunId}`, async () => {
+      const run = await this.requireEnhancement(ownerUserId, enhancementRunId);
+      const recommendation = run.recommendations.find((candidate) => candidate.id === recommendationId);
+      if (!recommendation) throw new WorkflowServiceError('WORKFLOW_NOT_FOUND', 'Recommendation was not found.', 404);
+      if (run.status !== 'awaiting_review' || recommendation.approvalState !== 'awaiting_approval') {
+        throw new WorkflowServiceError('WORKFLOW_STATE_INVALID', 'This recommendation is no longer awaiting review.', 409);
+      }
+      const normalized = approved ? normalizeOperations(operations) : [];
+      recommendation.approvalState = approved ? 'approved' : 'rejected';
+      if (approved) recommendation.operations = normalized;
+      if (run.recommendations.every((candidate) => candidate.approvalState !== 'awaiting_approval')) run.status = approvedRecommendations(run.recommendations).length ? 'approved' : 'blocked';
+      run.updatedAt = now();
+      await this.saveEnhancement(run);
+      return publicEnhancementRun(run);
+    });
   }
 
   public async startVersion2(ownerUserId: string, enhancementRunId: string): Promise<{ enhancement: EnhancementRun; version2RunId: string; status: Version2Status; manifest: ChangeManifest | null }> {
+    return this.withLock(`enhancement:${enhancementRunId}`, () => this.startVersion2Unlocked(ownerUserId, enhancementRunId));
+  }
+
+  private async startVersion2Unlocked(ownerUserId: string, enhancementRunId: string): Promise<{ enhancement: EnhancementRun; version2RunId: string; status: Version2Status; manifest: ChangeManifest | null }> {
     const run = await this.requireEnhancement(ownerUserId, enhancementRunId);
     if (run.status !== 'approved') throw new WorkflowServiceError('WORKFLOW_STATE_INVALID', 'Approve at least one recommendation before building Version 2.', 409);
     const version2RunId = randomUUID();
@@ -266,14 +294,21 @@ export class WorkflowService {
   }
 
   public async preparePullRequest(ownerUserId: string, version2RunId: string): Promise<PullRequestReceipt> {
+    return this.withLock(`version2:${version2RunId}`, () => this.preparePullRequestUnlocked(ownerUserId, version2RunId));
+  }
+
+  private async preparePullRequestUnlocked(ownerUserId: string, version2RunId: string): Promise<PullRequestReceipt> {
     const state = this.versions.get(version2RunId) ?? await this.store.get<{ ownerUserId: string; status: Version2Status; enhancementRunId: string; manifest: ChangeManifest | null; receipt: PullRequestReceipt | null; operations?: ChangeOperation[] }>(ownerUserId, 'version_2_run', version2RunId);
     if (!state || state.ownerUserId !== ownerUserId) throw new WorkflowServiceError('WORKFLOW_NOT_FOUND', 'Version 2 run was not found.', 404);
+    if (state.receipt) return state.receipt;
     if (state.status !== 'ready_for_pr') throw new WorkflowServiceError('WORKFLOW_STATE_INVALID', 'Version 2 must pass validation before pull-request preparation.', 409);
     const enhancement = await this.requireEnhancement(ownerUserId, state.enhancementRunId);
     const context = this.baseline.selectedContext(ownerUserId, enhancement.baselineRunId);
     const receipt: PullRequestReceipt = { pullRequestId: randomUUID(), version2RunId, owner: context.context.snapshot.repository.owner, repository: context.context.snapshot.repository.name, branchName: state.manifest?.targetBranch ?? `ai/enhancement/${version2RunId}`, title: `Obsidian Version 2: ${version2RunId}`, body: 'This pull request was prepared from an approved Obsidian change manifest. Review the exact diff and validation receipt before merging.', url: null, status: 'prepared', createdAt: now() };
     state.receipt = receipt;
+    this.versions.set(version2RunId, state);
     await this.store.save(ownerUserId, 'pull_request', receipt.pullRequestId, receipt);
+    await this.store.save(ownerUserId, 'version_2_run', version2RunId, state);
     return receipt;
   }
 
@@ -295,9 +330,14 @@ export class WorkflowService {
   }
 
   public async createPullRequest(ownerUserId: string, version2RunId: string, accessToken: string): Promise<PullRequestReceipt> {
+    return this.withLock(`version2:${version2RunId}`, () => this.createPullRequestUnlocked(ownerUserId, version2RunId, accessToken));
+  }
+
+  private async createPullRequestUnlocked(ownerUserId: string, version2RunId: string, accessToken: string): Promise<PullRequestReceipt> {
     const state = this.versions.get(version2RunId) ?? await this.store.get<{ ownerUserId: string; status: Version2Status; enhancementRunId: string; manifest: ChangeManifest | null; receipt: PullRequestReceipt | null; operations?: ChangeOperation[] }>(ownerUserId, 'version_2_run', version2RunId);
     if (!state || state.ownerUserId !== ownerUserId) throw new WorkflowServiceError('WORKFLOW_NOT_FOUND', 'Version 2 run was not found.', 404);
-    if (state.status !== 'ready_for_pr' || !state.manifest || !state.operations?.length) throw new WorkflowServiceError('WORKFLOW_STATE_INVALID', 'Version 2 must pass validation and contain approved file operations before pull-request creation.', 409);
+    if (state.receipt?.status === 'created') return state.receipt;
+    if (state.status !== 'ready_for_pr' || !state.manifest || !state.operations?.length || state.receipt?.status !== 'prepared') throw new WorkflowServiceError('WORKFLOW_STATE_INVALID', 'Version 2 must pass validation, preparation, and contain approved file operations before pull-request creation.', 409);
     const enhancement = await this.requireEnhancement(ownerUserId, state.enhancementRunId);
     const context = this.baseline.selectedContext(ownerUserId, enhancement.baselineRunId);
     const github = new GithubApiClient(accessToken);
@@ -307,8 +347,25 @@ export class WorkflowService {
     const created = await github.createPullRequest({ owner: repository.owner, name: repository.name, title: `Obsidian Version 2: ${version2RunId}`, body: 'Created from an approved Obsidian change manifest and validation receipt.', head: state.manifest.targetBranch, base: repository.branch });
     const receipt: PullRequestReceipt = { pullRequestId: randomUUID(), version2RunId, owner: repository.owner, repository: repository.name, branchName: state.manifest.targetBranch, title: `Obsidian Version 2: ${version2RunId}`, body: `Commit ${commitSha} was created from the approved manifest.`, url: created.url, status: 'created', createdAt: now() };
     state.receipt = receipt;
+    this.versions.set(version2RunId, state);
     await this.store.save(ownerUserId, 'pull_request', receipt.pullRequestId, receipt);
+    await this.store.save(ownerUserId, 'version_2_run', version2RunId, state);
     return receipt;
+  }
+
+  private async withLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.locks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    const queued = previous.then(() => current);
+    this.locks.set(key, queued);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.locks.get(key) === queued) this.locks.delete(key);
+    }
   }
 
   private async requireRepair(ownerUserId: string, planId: string): Promise<RepairPlan> {

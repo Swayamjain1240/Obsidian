@@ -11,9 +11,15 @@ interface SnapshotHandleRecord {
 export class SnapshotHandleStore {
   private readonly handles = new Map<string, SnapshotHandleRecord>();
 
-  constructor(private readonly ttlMs = 60 * 60 * 1000) {}
+  constructor(private readonly ttlMs = 60 * 60 * 1000, private readonly maxHandles = 10_000) {}
 
   create(ownerUserId: string, snapshot: SnapshotRecord, now = Date.now()): string {
+    for (const [key, record] of this.handles) if (record.expiresAt <= now) this.handles.delete(key);
+    while (this.handles.size >= this.maxHandles) {
+      const oldest = this.handles.keys().next().value as string | undefined;
+      if (!oldest) break;
+      this.handles.delete(oldest);
+    }
     const handle = randomBytes(32).toString('base64url');
     const ownedSnapshot: SnapshotRecord = Object.freeze({
       ...snapshot,

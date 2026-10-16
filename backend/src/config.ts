@@ -42,6 +42,12 @@ const configSchema = z.object({
   BASELINE_MAX_MEMORY_BYTES: z.coerce.number().int().positive().max(4_294_967_296).default(536_870_912),
   BASELINE_MAX_PROCESSES: z.coerce.number().int().positive().max(256).default(32),
   BASELINE_NETWORK_MODE: z.enum(['blocked', 'registry_only']).default('blocked'),
+  BASELINE_REQUIRE_ISOLATION: z.preprocess((value) => {
+    if (value === undefined) return undefined;
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  }, z.boolean().default(false)),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;
@@ -54,5 +60,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error(`Invalid environment configuration: ${fields}`);
   }
 
-  return result.data;
+  return {
+    ...result.data,
+    // Production must fail closed until a deployment supplies a verified
+    // OS/container worker. Local development and tests remain executable so
+    // their bounded runner contracts can be verified.
+    BASELINE_REQUIRE_ISOLATION: env.BASELINE_REQUIRE_ISOLATION === undefined
+      ? result.data.NODE_ENV === 'production'
+      : result.data.BASELINE_REQUIRE_ISOLATION,
+  };
 }

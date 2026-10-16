@@ -24,4 +24,9 @@ describe('loadConfig', () => {
   it('rejects missing required configuration', () => {
     expect(() => loadConfig({ NODE_ENV: 'test' })).toThrow(/MONGODB_URI/);
   });
+
+  it('requires verified worker isolation by default in production', () => {
+    const config = loadConfig({ ...validEnvironment, NODE_ENV: 'production' });
+    expect(config.BASELINE_REQUIRE_ISOLATION).toBe(true);
+  });
 });

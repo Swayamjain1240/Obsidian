@@ -60,7 +60,7 @@ export interface BaselineEngine {
     signal: AbortSignal;
     onProgress?: (stage: string, checks: number) => void;
   }): Promise<BaselinePlan>;
-  run(command: BaselineCommandSpec, options: { cwd: string; workspaceRoot?: string; timeoutMs: number; maxOutputBytes: number; maxMemoryBytes?: number; maxProcesses?: number; signal: AbortSignal }): Promise<BaselineCommandResult>;
+  run(command: BaselineCommandSpec, options: { cwd: string; workspaceRoot?: string; timeoutMs: number; maxOutputBytes: number; maxMemoryBytes?: number; maxProcesses?: number; requireIsolation?: boolean; signal: AbortSignal }): Promise<BaselineCommandResult>;
 }
 
 export class BaselineServiceError extends Error {
@@ -300,6 +300,7 @@ export class BaselineService {
           maxOutputBytes: this.config.BASELINE_MAX_OUTPUT_BYTES,
           maxMemoryBytes: this.config.BASELINE_MAX_MEMORY_BYTES,
           maxProcesses: this.config.BASELINE_MAX_PROCESSES,
+          requireIsolation: this.config.BASELINE_REQUIRE_ISOLATION,
           signal: stored.controller.signal,
         });
         if (isCancelled(stored)) return;

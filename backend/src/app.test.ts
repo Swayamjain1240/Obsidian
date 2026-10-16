@@ -55,4 +55,30 @@ describe('backend health routes', () => {
     expect(response.body.error.message).toBe('Route not found.');
     expect(response.body.error.requestId).toBeTruthy();
   });
+
+  it('returns structured errors for malformed and oversized JSON bodies', async () => {
+    const malformed = await request(app)
+      .post('/auth/logout')
+      .set('Origin', config.FRONTEND_ORIGIN)
+      .set('Content-Type', 'application/json')
+      .send('{');
+    expect(malformed.status).toBe(400);
+    expect(malformed.body.error.code).toBe('INVALID_INPUT');
+    expect(malformed.body.error.requestId).toBeTruthy();
+
+    const oversized = await request(app)
+      .post('/auth/logout')
+      .set('Origin', config.FRONTEND_ORIGIN)
+      .set('Content-Type', 'application/json')
+      .send(JSON.stringify({ payload: 'x'.repeat(110_000) }));
+    expect(oversized.status).toBe(413);
+    expect(oversized.body.error.code).toBe('PAYLOAD_TOO_LARGE');
+    expect(oversized.body.error.requestId).toBeTruthy();
+  });
+
+  it('treats malformed session cookies as unauthenticated instead of throwing', async () => {
+    const response = await request(app).get('/auth/me').set('Cookie', 'obsidian_session=%');
+    expect(response.status).toBe(200);
+    expect(response.body.user).toBeNull();
+  });
 });

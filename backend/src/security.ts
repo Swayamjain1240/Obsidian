@@ -13,7 +13,9 @@ export function securityMiddleware(config: AppConfig) {
       limit: config.RATE_LIMIT_MAX_REQUESTS,
       standardHeaders: 'draft-8',
       legacyHeaders: false,
-      message: { error: { code: 'RATE_LIMITED', message: 'Too many requests.' } },
+      handler: (_request, response) => {
+        response.status(429).json(errorBody('RATE_LIMITED', 'Too many requests.', response.locals.requestId as string));
+      },
     }),
   ];
 }

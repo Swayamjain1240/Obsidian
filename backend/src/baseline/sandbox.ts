@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 export interface SandboxPolicy {
-  network: 'blocked';
+  network: 'blocked' | 'registry_only';
   maxCpuMs: number;
   maxMemoryBytes: number;
   maxProcesses: number;
@@ -34,8 +34,12 @@ export function sandboxPolicyFromConfig(config: { BASELINE_MAX_MEMORY_BYTES: num
 
 const allowedExecutables = new Set(['npm', 'pnpm', 'yarn', 'bun', 'python', 'go', 'cargo', 'mvn', 'gradle', 'dotnet', 'composer', 'bundle', 'ruby', 'dart', 'node']);
 
+function executableBasename(executable: string): string {
+  return executable.replace(/^.*[\\/]/, '').toLowerCase().replace(/\.(?:cmd|exe|bat)$/g, '');
+}
+
 export function validateSandboxCommand(executable: string, cwd: string, workspaceRoot: string): { ok: true } | { ok: false; reason: string } {
-  const normalized = executable.toLowerCase().replace(/\.cmd$|\.exe$/g, '');
+  const normalized = executableBasename(executable);
   if (!allowedExecutables.has(normalized)) return { ok: false, reason: 'The executable is outside the verified baseline allowlist.' };
   const root = path.resolve(workspaceRoot);
   const working = path.resolve(cwd);

@@ -4,6 +4,10 @@ export type DatabaseStatus = 'not_connected' | 'connected' | 'disconnected' | 'e
 
 let status: DatabaseStatus = 'not_connected';
 
+mongoose.connection.on('connected', () => { status = 'connected'; });
+mongoose.connection.on('disconnected', () => { status = 'disconnected'; });
+mongoose.connection.on('error', () => { status = 'error'; });
+
 export function getDatabaseStatus(): DatabaseStatus {
   return status;
 }

@@ -17,9 +17,15 @@ export interface OAuthChallenge {
 export class OAuthStateStore {
   private readonly records = new Map<string, OAuthStateRecord>();
 
-  constructor(private readonly ttlMs = 10 * 60 * 1000) {}
+  constructor(private readonly ttlMs = 10 * 60 * 1000, private readonly maxRecords = 1_000) {}
 
   create(now = Date.now()): OAuthChallenge {
+    for (const [key, record] of this.records) if (record.expiresAt <= now) this.records.delete(key);
+    while (this.records.size >= this.maxRecords) {
+      const oldest = this.records.keys().next().value as string | undefined;
+      if (!oldest) break;
+      this.records.delete(oldest);
+    }
     const state = randomBytes(32).toString('base64url');
     const codeVerifier = randomBytes(48).toString('base64url');
     const browserBinding = randomBytes(32).toString('base64url');

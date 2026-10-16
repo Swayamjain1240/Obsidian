@@ -6,7 +6,12 @@ import type { SessionStore } from './session-store.js';
 export function getCookie(request: Request, name: string): string | null {
   const header = request.header('cookie');
   const pair = header?.split(';').map((item) => item.trim()).find((item) => item.startsWith(`${name}=`));
-  return pair ? decodeURIComponent(pair.slice(name.length + 1)) : null;
+  if (!pair) return null;
+  try {
+    return decodeURIComponent(pair.slice(name.length + 1));
+  } catch {
+    return null;
+  }
 }
 
 export function requireGithubSession(sessionStore: SessionStore) {

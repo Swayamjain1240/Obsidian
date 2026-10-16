@@ -17,14 +17,40 @@ import {
   validateVersion2,
   type EnhancementRun,
   type RepairPlan,
+  type WorkflowOperationInput,
 } from '../api';
 
 type WorkflowMode = 'repair' | 'enhance' | 'delivery';
+type OperationDraft = WorkflowOperationInput;
 
 function modeFor(pathname: string): WorkflowMode {
   if (pathname.includes('/enhance')) return 'enhance';
   if (pathname.includes('/delivery')) return 'delivery';
   return 'repair';
+}
+
+function operationFromDraft(draft: OperationDraft): WorkflowOperationInput {
+  const path = draft.path.trim();
+  if (!path) throw new Error('Enter a repository-relative file path before approving the change.');
+  if (draft.kind !== 'delete' && !draft.content) throw new Error('Enter file content before approving an add or modify operation.');
+  return draft.kind === 'delete' ? { kind: draft.kind, path } : { kind: draft.kind, path, content: draft.content ?? '' };
+}
+
+function OperationEditor({ id, draft, disabled, onChange }: { id: string; draft: OperationDraft; disabled: boolean; onChange: (draft: OperationDraft) => void }) {
+  return (
+    <div className="workflow-editor" aria-label="Approved file operation">
+      <label htmlFor={`${id}-kind`}>Operation</label>
+      <select id={`${id}-kind`} value={draft.kind} disabled={disabled} onChange={(event) => onChange({ ...draft, kind: event.target.value as OperationDraft['kind'], content: event.target.value === 'delete' ? '' : draft.content })}>
+        <option value="modify">Modify file</option>
+        <option value="add">Add file</option>
+        <option value="delete">Delete file</option>
+      </select>
+      <label htmlFor={`${id}-path`}>Repository-relative path</label>
+      <input id={`${id}-path`} value={draft.path} disabled={disabled} maxLength={1024} placeholder="src/example.ts" onChange={(event) => onChange({ ...draft, path: event.target.value })} />
+      {draft.kind !== 'delete' ? <><label htmlFor={`${id}-content`}>Approved file content</label><textarea id={`${id}-content`} value={draft.content ?? ''} disabled={disabled} maxLength={1_048_576} rows={4} placeholder="Enter the exact approved file content" onChange={(event) => onChange({ ...draft, content: event.target.value })} /></> : null}
+      <p className="muted workflow-editor-note">Only this explicit operation can be applied to the isolated change workspace.</p>
+    </div>
+  );
 }
 
 export function WorkflowPage() {
@@ -80,13 +106,17 @@ export function WorkflowPage() {
 }
 
 function RepairPanel({ plan, busy, onStart, onUpdate, onAction }: { plan: RepairPlan | null; busy: boolean; onStart: () => void; onUpdate: (plan: RepairPlan) => void; onAction: (operation: () => Promise<void>) => Promise<void> }) {
+  const [drafts, setDrafts] = useState<Record<string, OperationDraft>>({});
   if (!plan) return <section className="panel next-step-panel"><h2>Build the repair review.</h2><p className="muted">Baseline failures and unavailable checks become explicit repair items. Nothing is changed automatically.</p><button className="primary-button" type="button" onClick={onStart} disabled={busy}>Create repair plan</button></section>;
-  return <section className="panel workflow-panel"><div className="panel-heading"><h2>Repair review</h2><span className="status-chip">{plan.status.replaceAll('_', ' ')}</span></div><p className="muted">Base commit: <code>{plan.baseCommit}</code>{plan.branchName ? ` · ${plan.branchName}` : ''}</p><div className="workflow-list">{plan.items.map((item) => <article className="workflow-item" key={item.id}><div><strong>{item.title}</strong><p className="muted">{item.reason}</p><span className="status-chip">{item.approvalState} · {item.workerStatus}</span></div><div className="workflow-actions"><button className="primary-button" type="button" onClick={() => void onAction(async () => onUpdate((await approveRepairItem(plan.planId, item.id, true)).plan))} disabled={busy || item.approvalState !== 'awaiting_approval'}>Approve</button><button className="secondary-button" type="button" onClick={() => void onAction(async () => onUpdate((await approveRepairItem(plan.planId, item.id, false)).plan))} disabled={busy || item.approvalState !== 'awaiting_approval'}>Reject</button></div></article>)}</div>{plan.warning ? <p className="inline-error">{plan.warning}</p> : null}<div className="workflow-actions"><button className="primary-button" type="button" onClick={() => void onAction(async () => onUpdate((await startRepair(plan.planId)).plan))} disabled={busy || plan.status !== 'approved'}>Start repair worker</button><button className="secondary-button" type="button" onClick={() => void onAction(async () => onUpdate((await validateRepair(plan.planId)).plan))} disabled={busy || plan.status !== 'running'}>Validate repairs</button><button className="secondary-button" type="button" onClick={() => void onAction(async () => onUpdate((await publishRepairBranch(plan.planId)).plan))} disabled={busy || plan.status !== 'validated'}>Publish repair branch</button><Link className="secondary-button" to={`/project/enhance?baselineRunId=${encodeURIComponent(plan.baselineRunId)}`}>Continue to enhancement review</Link></div></section>;
+  const draftFor = (id: string): OperationDraft => drafts[id] ?? { kind: 'modify', path: '', content: '' };
+  return <section className="panel workflow-panel"><div className="panel-heading"><h2>Repair review</h2><span className="status-chip">{plan.status.replaceAll('_', ' ')}</span></div><p className="muted">Base commit: <code>{plan.baseCommit}</code>{plan.branchName ? ` · ${plan.branchName}` : ''}</p><div className="workflow-list">{plan.items.map((item) => <article className="workflow-item" key={item.id}><div><strong>{item.title}</strong><p className="muted">{item.reason}</p><span className="status-chip">{item.approvalState} · {item.workerStatus}</span><OperationEditor id={`repair-${item.id}`} draft={draftFor(item.id)} disabled={busy || item.approvalState !== 'awaiting_approval'} onChange={(draft) => setDrafts((current) => ({ ...current, [item.id]: draft }))} /></div><div className="workflow-actions"><button className="primary-button" type="button" onClick={() => void onAction(async () => onUpdate((await approveRepairItem(plan.planId, item.id, true, [operationFromDraft(draftFor(item.id))])).plan))} disabled={busy || item.approvalState !== 'awaiting_approval'}>Approve operation</button><button className="secondary-button" type="button" onClick={() => void onAction(async () => onUpdate((await approveRepairItem(plan.planId, item.id, false)).plan))} disabled={busy || item.approvalState !== 'awaiting_approval'}>Reject</button></div></article>)}</div>{plan.warning ? <p className="inline-error">{plan.warning}</p> : null}<div className="workflow-actions"><button className="primary-button" type="button" onClick={() => void onAction(async () => onUpdate((await startRepair(plan.planId)).plan))} disabled={busy || plan.status !== 'approved'}>Start repair worker</button><button className="secondary-button" type="button" onClick={() => void onAction(async () => onUpdate((await validateRepair(plan.planId)).plan))} disabled={busy || plan.status !== 'running'}>Validate repairs</button><button className="secondary-button" type="button" onClick={() => void onAction(async () => onUpdate((await publishRepairBranch(plan.planId)).plan))} disabled={busy || plan.status !== 'validated'}>Publish repair branch</button><Link className="secondary-button" to={`/project/enhance?baselineRunId=${encodeURIComponent(plan.baselineRunId)}`}>Continue to enhancement review</Link></div></section>;
 }
 
 function EnhancementPanel({ run, busy, onStart, onUpdate, onAction, onVersion2 }: { run: EnhancementRun | null; busy: boolean; onStart: () => void; onUpdate: (run: EnhancementRun) => void; onAction: (operation: () => Promise<void>) => Promise<void>; onVersion2: (id: string) => void }) {
+  const [drafts, setDrafts] = useState<Record<string, OperationDraft>>({});
   if (!run) return <section className="panel next-step-panel"><h2>Analyze existing areas.</h2><p className="muted">Recommendations are generated only for areas present in the confirmed snapshot and baseline evidence.</p><button className="primary-button" type="button" onClick={onStart} disabled={busy}>Create enhancement review</button></section>;
-  return <section className="panel workflow-panel"><div className="panel-heading"><h2>Enhancement recommendations</h2><span className="status-chip">{run.status.replaceAll('_', ' ')}</span></div><p className="muted">Base commit: <code>{run.baseCommit}</code> · Scope: {run.scopeMode === 'FULL' ? 'Complete project first' : 'Existing parts only'}</p><div className="workflow-list">{run.recommendations.map((item) => <article className="workflow-item" key={item.id}><div><strong>{item.title}</strong><p className="muted">{item.suggestedSolution}</p><span className="status-chip">{item.category} · {item.approvalState}</span></div><div className="workflow-actions"><button className="primary-button" type="button" onClick={() => void onAction(async () => onUpdate((await approveRecommendation(run.enhancementRunId, item.id, true)).run))} disabled={busy || item.approvalState !== 'awaiting_approval'}>Approve</button><button className="secondary-button" type="button" onClick={() => void onAction(async () => onUpdate((await approveRecommendation(run.enhancementRunId, item.id, false)).run))} disabled={busy || item.approvalState !== 'awaiting_approval'}>Reject</button></div></article>)}</div>{run.warning ? <p className="inline-error">{run.warning}</p> : null}<div className="workflow-actions"><button className="primary-button" type="button" onClick={() => void onAction(async () => { const response = await startVersion2(run.enhancementRunId); onVersion2(response.version2RunId); })} disabled={busy || run.status !== 'approved'}>Build Version 2</button></div></section>;
+  const draftFor = (id: string): OperationDraft => drafts[id] ?? { kind: 'modify', path: '', content: '' };
+  return <section className="panel workflow-panel"><div className="panel-heading"><h2>Enhancement recommendations</h2><span className="status-chip">{run.status.replaceAll('_', ' ')}</span></div><p className="muted">Base commit: <code>{run.baseCommit}</code> · Scope: {run.scopeMode === 'FULL' ? 'Complete project first' : 'Existing parts only'}</p><div className="workflow-list">{run.recommendations.map((item) => <article className="workflow-item" key={item.id}><div><strong>{item.title}</strong><p className="muted">{item.suggestedSolution}</p><span className="status-chip">{item.category} · {item.approvalState}</span><OperationEditor id={`recommendation-${item.id}`} draft={draftFor(item.id)} disabled={busy || item.approvalState !== 'awaiting_approval'} onChange={(draft) => setDrafts((current) => ({ ...current, [item.id]: draft }))} /></div><div className="workflow-actions"><button className="primary-button" type="button" onClick={() => void onAction(async () => onUpdate((await approveRecommendation(run.enhancementRunId, item.id, true, [operationFromDraft(draftFor(item.id))])).run))} disabled={busy || item.approvalState !== 'awaiting_approval'}>Approve operation</button><button className="secondary-button" type="button" onClick={() => void onAction(async () => onUpdate((await approveRecommendation(run.enhancementRunId, item.id, false)).run))} disabled={busy || item.approvalState !== 'awaiting_approval'}>Reject</button></div></article>)}</div>{run.warning ? <p className="inline-error">{run.warning}</p> : null}<div className="workflow-actions"><button className="primary-button" type="button" onClick={() => void onAction(async () => { const response = await startVersion2(run.enhancementRunId); onVersion2(response.version2RunId); })} disabled={busy || run.status !== 'approved'}>Build Version 2</button></div></section>;
 }
 
 function DeliveryPanel({ version2RunId, receipt, busy, onAction, onReceipt }: { version2RunId: string | null; receipt: { status: string; url?: string | null } | null; busy: boolean; onAction: (operation: () => Promise<void>) => Promise<void>; onReceipt: (receipt: { status: string; url?: string | null }) => void }) {

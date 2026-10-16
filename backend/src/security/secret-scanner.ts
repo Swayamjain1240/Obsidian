@@ -12,11 +12,18 @@ const patterns: Array<{ kind: SecretFinding['kind']; expression: RegExp; reason:
   { kind: 'private-key', expression: /-----BEGIN (?:RSA|EC|OPENSSH|PRIVATE) KEY-----/, reason: 'private-key marker' },
   { kind: 'github-token', expression: /\bgh[pousr]_[A-Za-z0-9_]{20,}\b|\bgithub_pat_[A-Za-z0-9_]{20,}\b/, reason: 'GitHub token pattern' },
   { kind: 'cloud-access-key', expression: /\bAKIA[0-9A-Z]{16}\b/, reason: 'cloud access-key pattern' },
-  { kind: 'generic-secret-assignment', expression: /\b(?:api[_-]?key|token|password|secret)\s*[:=]\s*["'][^"']{12,}["']/i, reason: 'secret-like assignment' },
+  { kind: 'generic-secret-assignment', expression: /\b(?:api[_-]?key|token|password|secret)\s*[:=]\s*(?:["'][^"']{12,}["']|[^\s#;]{12,})/i, reason: 'secret-like assignment' },
 ];
 
+const sensitivePath = /(?:^|\/)(?:\.env(?:\.[^/]*)?|\.npmrc|\.pypirc|credentials(?:\.json)?|secrets?(?:\.json)?|id_rsa|id_ed25519)$/i;
+const binaryPath = /(?:\.png|\.jpg|\.jpeg|\.gif|\.pdf|\.zip|\.gz|\.woff2?)$/i;
+
 function textCandidate(file: ManifestFile): boolean {
-  return file.bytes > 0 && file.bytes <= 262_144 && !ignoredPath(file.path) && !/(?:\.png|\.jpg|\.jpeg|\.gif|\.pdf|\.zip|\.gz|\.woff2?)$/i.test(file.path);
+  const sensitive = sensitivePath.test(file.path);
+  return file.bytes > 0
+    && file.bytes <= 262_144
+    && (sensitive || !ignoredPath(file.path))
+    && !binaryPath.test(file.path);
 }
 
 export async function scanSecretMarkers(extraction: ExtractionRecord, signal?: AbortSignal): Promise<{ findings: SecretFinding[]; scannedFileCount: number }> {
