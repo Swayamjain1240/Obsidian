@@ -41,6 +41,13 @@ const configSchema = z.object({
   BASELINE_MAX_OUTPUT_BYTES: z.coerce.number().int().positive().max(1_000_000).default(65_536),
   BASELINE_MAX_MEMORY_BYTES: z.coerce.number().int().positive().max(4_294_967_296).default(536_870_912),
   BASELINE_MAX_PROCESSES: z.coerce.number().int().positive().max(256).default(32),
+  BASELINE_MAX_PATH_DEPTH: z.coerce.number().int().positive().max(512).default(128),
+  BASELINE_WORKER_IMAGE: z.string().min(1).max(256).regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*(?::[A-Za-z0-9._-]+)?(?:@sha256:[a-f0-9]{64})?$/i).default('obsidian-sandbox:dev'),
+  BASELINE_WORKER_BROKER_URL: z.string().url().optional(),
+  BASELINE_WORKER_BROKER_TOKEN: z.string().min(32).optional(),
+  BASELINE_WORKER_SCRATCH_BYTES: z.coerce.number().int().positive().max(4_294_967_296).default(134_217_728),
+  BASELINE_WORKER_CLEANUP_TIMEOUT_MS: z.coerce.number().int().positive().max(120_000).default(10_000),
+  BASELINE_WORKER_LEASE_MS: z.coerce.number().int().positive().max(3_600_000).default(120_000),
   BASELINE_NETWORK_MODE: z.enum(['blocked', 'registry_only']).default('blocked'),
   BASELINE_REQUIRE_ISOLATION: z.preprocess((value) => {
     if (value === undefined) return undefined;
@@ -69,6 +76,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error(
       'Invalid environment configuration: BASELINE_REQUIRE_ISOLATION cannot be disabled in production.',
     );
+  }
+
+  if (isProduction && !result.data.BASELINE_WORKER_IMAGE.includes('@sha256:')) {
+    throw new Error(
+      'Invalid environment configuration: BASELINE_WORKER_IMAGE must be pinned by digest in production.',
+    );
+  }
+
+  if (Boolean(result.data.BASELINE_WORKER_BROKER_URL) !== Boolean(result.data.BASELINE_WORKER_BROKER_TOKEN)) {
+    throw new Error('Invalid environment configuration: BASELINE_WORKER_BROKER_URL and BASELINE_WORKER_BROKER_TOKEN must be configured together.');
+  }
+
+  if (isProduction && (!result.data.BASELINE_WORKER_BROKER_URL || !result.data.BASELINE_WORKER_BROKER_TOKEN)) {
+    throw new Error('Invalid environment configuration: a separately permissioned worker broker is required in production.');
   }
 
   return {

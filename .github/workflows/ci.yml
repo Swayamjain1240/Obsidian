@@ -46,5 +46,25 @@ jobs:
       - name: Browser tests
         run: npm run e2e --workspace frontend
 
+      - name: Build isolated worker image
+        run: docker build --provenance=true --sbom=true --tag obsidian-sandbox:dev infra/sandbox
+
+      - name: Verify worker image policy
+        run: npm run verify:worker-image
+
+      - name: Scan worker image when Docker Scout is available
+        run: |
+          if docker scout version >/dev/null 2>&1; then
+            docker scout cves --only-severity critical,high local://obsidian-sandbox:dev
+            docker scout cves --exit-code --only-severity critical local://obsidian-sandbox:dev
+          else
+            echo "Docker Scout is unavailable; production vulnerability scanning remains a deployment requirement."
+          fi
+
+      - name: Docker worker integration tests
+        env:
+          OBSIDIAN_DOCKER_TESTS: '1'
+        run: npm run test --workspace backend -- src/workers src/baseline/docker-integration.test.ts src/workflow/change-worker-docker.integration.test.ts
+
       - name: Check diff whitespace
         run: git diff --check

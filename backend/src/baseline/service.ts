@@ -13,7 +13,7 @@ import {
   type BaselinePlan,
   type BaselinePlannedCheck,
 } from './adapters.js';
-import { runBaselineCommand, type BaselineCommandResult } from './runner.js';
+import type { BaselineCommandResult } from './runner.js';
 import {
   baselinePolicyVersion,
   type BaselineCheckResult,
@@ -22,6 +22,9 @@ import {
   type BaselineRunStatus,
 } from './types.js';
 import type { DurableRunStore } from '../workflow/run-store.js';
+import type { RepositoryCommandExecutor } from '../workers/executor.js';
+import { DockerBrokerExecutor } from '../workers/docker-broker.js';
+import { InMemoryWorkerLeaseStore, MongoWorkerLeaseStore } from '../workers/lease-store.js';
 
 export interface BaselineScopeProvider {
   selectedContext(ownerUserId: string, completenessRunId: string): {
@@ -60,7 +63,7 @@ export interface BaselineEngine {
     signal: AbortSignal;
     onProgress?: (stage: string, checks: number) => void;
   }): Promise<BaselinePlan>;
-  run(command: BaselineCommandSpec, options: { cwd: string; workspaceRoot?: string; timeoutMs: number; maxOutputBytes: number; maxMemoryBytes?: number; maxProcesses?: number; requireIsolation?: boolean; signal: AbortSignal }): Promise<BaselineCommandResult>;
+  run(command: BaselineCommandSpec, options: { cwd: string; workspaceRoot?: string; timeoutMs: number; maxOutputBytes: number; maxMemoryBytes?: number; maxProcesses?: number; maxFiles?: number; maxDirectories?: number; maxBytes?: number; maxSingleFileBytes?: number; maxPathDepth?: number; scratchBytes?: number; requireIsolation?: boolean; signal: AbortSignal }): Promise<BaselineCommandResult>;
 }
 
 export class BaselineServiceError extends Error {
@@ -134,11 +137,33 @@ export class BaselineService {
     engine?: Partial<BaselineEngine>,
     private readonly eventSink?: DetectionEventSink,
     private readonly runStore?: DurableRunStore,
+    commandExecutor?: RepositoryCommandExecutor,
   ) {
+    const isolatedExecutor = commandExecutor ?? new DockerBrokerExecutor({
+      trustedSnapshotRoot: config.SNAPSHOT_ROOT,
+      image: config.BASELINE_WORKER_IMAGE,
+      brokerUrl: config.BASELINE_WORKER_BROKER_URL,
+      brokerToken: config.BASELINE_WORKER_BROKER_TOKEN,
+      cleanupTimeoutMs: config.BASELINE_WORKER_CLEANUP_TIMEOUT_MS,
+      leaseDurationMs: config.BASELINE_WORKER_LEASE_MS,
+      leaseStore: config.NODE_ENV === 'production' ? new MongoWorkerLeaseStore() : new InMemoryWorkerLeaseStore(),
+      resourceLimits: {
+        memoryBytes: config.BASELINE_MAX_MEMORY_BYTES,
+        maxProcesses: config.BASELINE_MAX_PROCESSES,
+        workspaceTmpfsBytes: config.BASELINE_WORKER_SCRATCH_BYTES,
+      },
+      workspaceLimits: {
+        maxFiles: config.SNAPSHOT_MAX_FILES,
+        maxDirectories: config.SNAPSHOT_MAX_DIRECTORIES,
+        maxBytes: config.SNAPSHOT_MAX_EXTRACTED_BYTES,
+        maxSingleFileBytes: config.SNAPSHOT_MAX_SINGLE_FILE_BYTES,
+        maxDepth: config.BASELINE_MAX_PATH_DEPTH,
+      },
+    });
     this.engine = {
       extract: (snapshot, policy, onProgress, signal) => extractSnapshot(snapshot, policy, onProgress, signal),
       discover: (options) => discoverBaselinePlan(options),
-      run: (command, options) => runBaselineCommand(command, options),
+      run: (command, options) => isolatedExecutor.run(command, options),
       ...engine,
     } as BaselineEngine;
   }
@@ -245,6 +270,11 @@ export class BaselineService {
 
   private async execute(stored: StoredRun): Promise<void> {
     const totalDeadline = Date.now() + this.config.BASELINE_MAX_TOTAL_TIMEOUT_MS;
+    let totalTimedOut = false;
+    const totalTimer = setTimeout(() => {
+      totalTimedOut = true;
+      stored.controller.abort(new Error('Baseline total timeout exceeded.'));
+    }, this.config.BASELINE_MAX_TOTAL_TIMEOUT_MS);
     try {
       stored.lifecycleState = transition(stored.lifecycleState, 'baseline_testing');
       stored.result.status = 'planning';
@@ -260,7 +290,10 @@ export class BaselineService {
         if (isCancelled(stored)) return;
         stored.result.progress = { ...stored.result.progress, stage, checksCompleted: 0, checksTotal: 0 };
       }, stored.controller.signal);
-      if (isCancelled(stored)) return;
+      if (isCancelled(stored)) {
+        if (!totalTimedOut) return;
+        throw new Error('Baseline total timeout exceeded.');
+      }
       const plan = await this.engine.discover({
         extraction,
         languageCandidates: stored.context.languageCandidates,
@@ -269,13 +302,19 @@ export class BaselineService {
         signal: stored.controller.signal,
         onProgress: (stage, checks) => { stored.result.progress = { ...stored.result.progress, stage, checksTotal: checks }; },
       });
-      if (isCancelled(stored)) return;
+      if (isCancelled(stored)) {
+        if (!totalTimedOut) return;
+        throw new Error('Baseline total timeout exceeded.');
+      }
       stored.result.checks = plan.checks.map(checkFromPlan);
       stored.result.warning = plan.warning;
       stored.result.status = 'running';
       stored.result.progress = { stage: 'running', checksCompleted: 0, checksTotal: stored.result.checks.length, passed: 0, failed: 0, notAvailable: 0 };
       for (let index = 0; index < plan.checks.length; index += 1) {
-        if (isCancelled(stored)) return;
+        if (isCancelled(stored)) {
+          if (!totalTimedOut) return;
+          throw new Error('Baseline total timeout exceeded.');
+        }
         if (Date.now() >= totalDeadline) throw new Error('Baseline total timeout exceeded.');
         const planned = plan.checks[index];
         const check = stored.result.checks[index];
@@ -300,10 +339,22 @@ export class BaselineService {
           maxOutputBytes: this.config.BASELINE_MAX_OUTPUT_BYTES,
           maxMemoryBytes: this.config.BASELINE_MAX_MEMORY_BYTES,
           maxProcesses: this.config.BASELINE_MAX_PROCESSES,
+          maxFiles: this.config.SNAPSHOT_MAX_FILES,
+          maxDirectories: this.config.SNAPSHOT_MAX_DIRECTORIES,
+          maxBytes: this.config.SNAPSHOT_MAX_EXTRACTED_BYTES,
+          maxSingleFileBytes: this.config.SNAPSHOT_MAX_SINGLE_FILE_BYTES,
+          maxPathDepth: this.config.BASELINE_MAX_PATH_DEPTH,
+          scratchBytes: this.config.BASELINE_WORKER_SCRATCH_BYTES,
           requireIsolation: this.config.BASELINE_REQUIRE_ISOLATION,
           signal: stored.controller.signal,
         });
-        if (isCancelled(stored)) return;
+        if (isCancelled(stored)) {
+          if (!totalTimedOut) return;
+          check.status = 'timed_out';
+          check.summary = 'The baseline run exceeded its total time limit.';
+          this.updateProgress(stored, index + 1);
+          throw new Error('Baseline total timeout exceeded.');
+        }
         check.status = commandResult.status;
         check.summary = commandResult.summary;
         check.exitCode = commandResult.exitCode;
@@ -311,7 +362,10 @@ export class BaselineService {
         this.recordEvent(stored, 'CHECK_COMPLETED', `${check.label}: ${check.summary}`, commandResult.status === 'passed' ? 'passed' : commandResult.status === 'not_available' ? 'unavailable' : commandResult.status === 'cancelled' ? 'skipped' : 'failed');
         this.updateProgress(stored, index + 1);
       }
-      if (isCancelled(stored)) return;
+      if (isCancelled(stored)) {
+        if (!totalTimedOut) return;
+        throw new Error('Baseline total timeout exceeded.');
+      }
       const hasFailures = stored.result.checks.some((check) => ['failed', 'timed_out'].includes(check.status));
       const hasUnavailable = stored.result.checks.some((check) => check.status === 'not_available');
       stored.result.passedCount = stored.result.checks.filter((check) => check.status === 'passed').length;
@@ -339,7 +393,7 @@ export class BaselineService {
       }
       void this.persist(stored);
     } catch (reason: unknown) {
-      if (stored.result.status === 'cancelled' || stored.controller.signal.aborted) {
+      if ((stored.result.status === 'cancelled' || stored.controller.signal.aborted) && !totalTimedOut) {
         if (stored.result.status !== 'cancelled') {
           stored.lifecycleState = transition(stored.lifecycleState, 'cancelled');
           stored.result.status = 'cancelled';
@@ -355,6 +409,8 @@ export class BaselineService {
       stored.result.error = { code: 'BASELINE_FAILED', message: safeErrorMessage(reason) };
       void this.persist(stored);
       this.recordEvent(stored, 'BASELINE_FAILED', stored.result.error.message, 'failed');
+    } finally {
+      clearTimeout(totalTimer);
     }
   }
 

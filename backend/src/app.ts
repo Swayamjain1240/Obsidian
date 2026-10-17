@@ -25,6 +25,10 @@ import { DurableWorkflowStore } from './workflow/store.js';
 import { DurableRunStore } from './workflow/run-store.js';
 import { getDatabaseStatus } from './db/connection.js';
 import { securityMiddleware } from './security.js';
+import { checkDockerSandbox } from './workers/docker-preflight.js';
+import { DockerBrokerExecutor } from './workers/docker-broker.js';
+import type { RepositoryCommandExecutor } from './workers/executor.js';
+import { MongoWorkerLeaseStore, type WorkerLeaseStore } from './workers/lease-store.js';
 
 export function createApp(config: AppConfig, dependencies: {
   sessionStore?: SessionStore;
@@ -35,8 +39,22 @@ export function createApp(config: AppConfig, dependencies: {
   completenessService?: CompletenessService;
   baselineService?: BaselineService;
   workflowService?: WorkflowService;
+  workerExecutor?: RepositoryCommandExecutor;
+  workerLeaseStore?: WorkerLeaseStore;
 } = {}) {
   const app = express();
+  const workerExecutor: RepositoryCommandExecutor = dependencies.workerExecutor ?? new DockerBrokerExecutor({
+    trustedSnapshotRoot: config.SNAPSHOT_ROOT,
+    image: config.BASELINE_WORKER_IMAGE,
+    brokerUrl: config.BASELINE_WORKER_BROKER_URL,
+    brokerToken: config.BASELINE_WORKER_BROKER_TOKEN,
+    cleanupTimeoutMs: config.BASELINE_WORKER_CLEANUP_TIMEOUT_MS,
+    resourceLimits: { memoryBytes: config.BASELINE_MAX_MEMORY_BYTES, maxProcesses: config.BASELINE_MAX_PROCESSES, workspaceTmpfsBytes: config.BASELINE_WORKER_SCRATCH_BYTES },
+    workspaceLimits: { maxFiles: config.SNAPSHOT_MAX_FILES, maxDirectories: config.SNAPSHOT_MAX_DIRECTORIES, maxBytes: config.SNAPSHOT_MAX_EXTRACTED_BYTES, maxSingleFileBytes: config.SNAPSHOT_MAX_SINGLE_FILE_BYTES, maxDepth: config.BASELINE_MAX_PATH_DEPTH },
+    leaseDurationMs: config.BASELINE_WORKER_LEASE_MS,
+    leaseStore: dependencies.workerLeaseStore ?? new MongoWorkerLeaseStore(),
+  });
+  app.locals.workerExecutor = workerExecutor;
 
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
@@ -65,12 +83,15 @@ export function createApp(config: AppConfig, dependencies: {
     response.json({ status: 'ok', service: 'backend', requestId: response.locals.requestId });
   });
 
-  app.get('/health/ready', (_request: Request, response: Response) => {
+  app.get('/health/ready', async (_request: Request, response: Response) => {
     const mongodb = getDatabaseStatus();
-    const ready = mongodb === 'connected';
+    const worker = mongodb === 'connected'
+      ? await checkDockerSandbox(config.BASELINE_WORKER_IMAGE, 'docker', workerExecutor)
+      : { available: false, summary: 'Worker preflight is waiting for MongoDB readiness.' };
+    const ready = mongodb === 'connected' && worker.available;
     response.status(ready ? 200 : 503).json({
       status: ready ? 'ready' : 'not_ready',
-      checks: { mongodb },
+      checks: { mongodb, workerSandbox: worker.available ? 'available' : 'not_available' },
       requestId: response.locals.requestId,
     });
   });
@@ -90,8 +111,8 @@ export function createApp(config: AppConfig, dependencies: {
     const handleStore = dependencies.handleStore ?? new SnapshotHandleStore();
     const detectionService = dependencies.detectionService ?? new DetectionService(config, handleStore, undefined, eventSink, runStore);
     const completenessService = dependencies.completenessService ?? new CompletenessService(config, undefined, eventSink, runStore);
-    const baselineService = dependencies.baselineService ?? new BaselineService(config, completenessService, undefined, eventSink, runStore);
-    const workflowService = dependencies.workflowService ?? new WorkflowService(config, baselineService, completenessService, new DurableWorkflowStore(), eventSink);
+    const baselineService = dependencies.baselineService ?? new BaselineService(config, completenessService, undefined, eventSink, runStore, workerExecutor);
+    const workflowService = dependencies.workflowService ?? new WorkflowService(config, baselineService, completenessService, new DurableWorkflowStore(), eventSink, workerExecutor);
     app.use('/api/v1/github', createGithubRouter(sessionStore));
     app.use('/api/v1/intake', createIntakeRouter(config, sessionStore, dependencies.intakeService, handleStore));
     app.use('/api/v1/intake/detections', createDetectionRouter(config, sessionStore, detectionService));

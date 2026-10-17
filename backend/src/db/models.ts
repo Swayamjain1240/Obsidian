@@ -104,3 +104,20 @@ const workflowStateSchema = new Schema(
 workflowStateSchema.index({ ownerUserId: 1, kind: 1, stateId: 1 }, { unique: true });
 
 export const WorkflowStateModel = mongoose.models.WorkflowState ?? mongoose.model('WorkflowState', workflowStateSchema);
+
+const workerLeaseSchema = new Schema(
+  {
+    jobId: { type: String, required: true, unique: true, immutable: true },
+    ownerId: { type: String, required: true, index: true },
+    leaseTokenHash: { type: String, required: true },
+    containerName: { type: String, required: true, immutable: true },
+    state: { type: String, enum: ['claimed', 'running', 'completed', 'failed', 'cancelled', 'recovery', 'recovered', 'recovery_failed'], required: true, index: true },
+    leaseExpiresAt: { type: Date, required: true, index: true },
+    heartbeatAt: { type: Date, required: true },
+    lastErrorCode: { type: String, default: null },
+  },
+  { timestamps: true },
+);
+workerLeaseSchema.index({ state: 1, leaseExpiresAt: 1 });
+
+export const WorkerLeaseModel = mongoose.models.WorkerLease ?? mongoose.model('WorkerLease', workerLeaseSchema);

@@ -1,5 +1,6 @@
 
-import { validateSnapshotWorkspace } from './workspace-policy.js';
+import { validateSnapshotWorkspace, type WorkspaceLimits } from './workspace-policy.js';
+import path from 'node:path';
 
 const CONTAINER_SNAPSHOT_PATH = '/input';
 
@@ -13,11 +14,18 @@ const CONTAINER_SNAPSHOT_PATH = '/input';
 export async function buildSnapshotMountArgs(
   workspacePath: string,
   trustedRoot: string,
+  limits: Partial<WorkspaceLimits> = {},
 ): Promise<string[]> {
-  const verifiedPath = await validateSnapshotWorkspace(
+  await validateSnapshotWorkspace(
     workspacePath,
     trustedRoot,
+    limits,
   );
+  // Keep the caller's absolute spelling for Docker Desktop. Windows can
+  // return an 8.3 short path from realpath(), which is valid to Node but may
+  // not map to an allowed host share in Docker Desktop. The path has already
+  // been fully verified above, so this is only a mount-string normalization.
+  const verifiedPath = path.resolve(workspacePath);
 
   // Docker's --mount option uses commas as separators.
   // Reject ambiguous or control-character-containing paths.

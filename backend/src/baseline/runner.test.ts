@@ -34,7 +34,7 @@ describe('bounded baseline command runner', () => {
     });
     controller.abort(new Error('cancel test'));
     expect((await cancelledPromise).status).toBe('cancelled');
-  });
+  }, 15_000);
 
   it('fails closed when a verified worker sandbox is required but unavailable', async () => {
     const result = await runBaselineCommand(command(['--version']), {

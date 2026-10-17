@@ -12,6 +12,7 @@ export interface DockerResourceLimits {
   maxProcesses: number;
   cpus: number;
   workspaceTmpfsBytes: number;
+  tmpTmpfsBytes: number;
 }
 
 export const defaultDockerLimits: DockerResourceLimits = {
@@ -19,6 +20,7 @@ export const defaultDockerLimits: DockerResourceLimits = {
   maxProcesses: 32,
   cpus: 0.5,
   workspaceTmpfsBytes: 128 * 1024 * 1024,
+  tmpTmpfsBytes: 64 * 1024 * 1024,
 };
 
 export function dockerSecurityArgs(
@@ -35,7 +37,10 @@ export function dockerSecurityArgs(
     limits.cpus > 4 ||
     !Number.isSafeInteger(limits.workspaceTmpfsBytes) ||
     limits.workspaceTmpfsBytes < 16 * 1024 * 1024 ||
-    limits.workspaceTmpfsBytes > limits.memoryBytes
+    limits.workspaceTmpfsBytes > limits.memoryBytes ||
+    !Number.isSafeInteger(limits.tmpTmpfsBytes) ||
+    limits.tmpTmpfsBytes < 8 * 1024 * 1024 ||
+    limits.tmpTmpfsBytes > limits.memoryBytes
   ) {
     throw new Error('Invalid Docker sandbox resource limits.');
   }
@@ -45,13 +50,16 @@ export function dockerSecurityArgs(
     '--read-only',
     '--cap-drop', 'ALL',
     '--security-opt', 'no-new-privileges',
+    '--init',
     '--pids-limit', String(limits.maxProcesses),
     '--memory', String(limits.memoryBytes),
+    '--memory-swap', String(limits.memoryBytes),
     '--cpus', String(limits.cpus),
     '--user', '1000:1000',
-    '--tmpfs', '/tmp:rw,nosuid,nodev,size=64m',
+    '--ulimit', 'nofile=1024:1024',
+    '--tmpfs', `/tmp:rw,nosuid,nodev,size=${limits.tmpTmpfsBytes},mode=1777`,
     '--tmpfs',
-    `/workspace:rw,nosuid,nodev,size=${limits.workspaceTmpfsBytes}`,
+    `/workspace:rw,nosuid,nodev,size=${limits.workspaceTmpfsBytes},mode=1777`,
     '--workdir', '/workspace',
   ];
 }

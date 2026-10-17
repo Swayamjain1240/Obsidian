@@ -11,7 +11,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { validateSnapshotWorkspace } from './workspace-policy.js';
+import { inspectSnapshotWorkspace, validateSnapshotWorkspace } from './workspace-policy.js';
 
 interface Fixture {
   root: string;
@@ -87,6 +87,30 @@ describe('Snapshot Workspace Security Policy', () => {
       await expect(
         validateSnapshotWorkspace(workspace, root),
       ).rejects.toThrow(/symbolic link/);
+    });
+  });
+
+  it('enforces file, byte, and depth limits and returns a content fingerprint', async () => {
+    await withFixture(async ({ root, workspace }) => {
+      await mkdir(path.join(workspace, 'nested'));
+      await writeFile(path.join(workspace, 'README.md'), '1234');
+      await writeFile(path.join(workspace, 'nested', 'file.txt'), '5678');
+
+      const inventory = await inspectSnapshotWorkspace(workspace, root, {
+        maxFiles: 2,
+        maxDirectories: 1,
+        maxBytes: 8,
+        maxSingleFileBytes: 4,
+        maxDepth: 2,
+      });
+      expect(inventory.fileCount).toBe(2);
+      expect(inventory.directoryCount).toBe(1);
+      expect(inventory.totalBytes).toBe(8);
+      expect(inventory.fingerprint).toMatch(/^[a-f0-9]{64}$/);
+
+      await expect(inspectSnapshotWorkspace(workspace, root, { maxFiles: 1 })).rejects.toThrow(/file limit|validation limits/);
+      await expect(inspectSnapshotWorkspace(workspace, root, { maxBytes: 7, maxSingleFileBytes: 7 })).rejects.toThrow(/byte limit/);
+      await expect(inspectSnapshotWorkspace(workspace, root, { maxDepth: 1 })).rejects.toThrow(/depth/);
     });
   });
 });

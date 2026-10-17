@@ -22,6 +22,15 @@ export interface BaselineCommandRunnerOptions {
   signal: AbortSignal;
   maxMemoryBytes?: number;
   maxProcesses?: number;
+  maxFiles?: number;
+  maxDirectories?: number;
+  maxBytes?: number;
+  maxSingleFileBytes?: number;
+  maxPathDepth?: number;
+  scratchBytes?: number;
+  workerJobId?: string;
+  workerOwnerId?: string;
+  workerLeaseExpiresAt?: number;
   requireIsolation?: boolean;
 }
 

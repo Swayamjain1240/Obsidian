@@ -226,11 +226,11 @@ Obsidian distinguishes `Working`, `Working with issues`, `Broken`, `Partial`, `P
 - The original repository is never silently changed.
 - Analysis reads an immutable snapshot and verified extraction manifest.
 - Repository code is not executed during detection or completeness scanning.
-- Baseline commands run with bounded time/output and a sanitized environment; stronger OS-level worker isolation is a planned hardening phase.
+- Baseline commands run in the pinned `obsidian-sandbox` Docker worker with no network, a read-only original snapshot mount, a bounded writable scratch tmpfs, a non-root UID, dropped capabilities, `no-new-privileges`, CPU/memory/PID limits, and bounded output/time.
 - API keys, OAuth tokens, passwords, source excerpts, and raw command output stay out of responses and logs.
 - Protected routes enforce server-side ownership; mutating routes enforce the configured frontend origin.
 - Unknown or ambiguous technologies remain explicitly not detected.
-- Missing checks are reported as `Not available`, not as failures or passes.
+- Missing checks and unsupported or registry-dependent worker capabilities are reported as `Not available`, not as failures or passes.
 
 ## Testing and verification
 
@@ -244,6 +244,16 @@ npm run audit
 npm run e2e --workspace frontend
 git diff --check
 ```
+
+The isolated-worker integration suite is opt-in because it requires Docker Desktop with the Linux engine and the local worker image:
+
+```bash
+docker build --provenance=true --sbom=true --tag obsidian-sandbox:dev infra/sandbox
+npm run verify:worker-image
+OBSIDIAN_DOCKER_TESTS=1 npm run test --workspace backend -- src/workers src/baseline/docker-integration.test.ts src/workflow/change-worker-docker.integration.test.ts
+```
+
+For production, run `npm run worker-broker --workspace backend` as a separately permissioned service with access to the Docker daemon, then configure `BASELINE_WORKER_BROKER_URL` and a 32-character-or-longer `BASELINE_WORKER_BROKER_TOKEN` in the API. Development and tests may use the local broker subprocess fallback.
 
 Authenticated screens follow a one-viewport policy. The Playwright suite checks confirmation, completeness, and baseline screens at desktop, tablet, and mobile sizes for horizontal and vertical overflow.
 
@@ -286,6 +296,7 @@ Duck reviews record evidence and deferred decisions for each completed part:
 - [Part 4](docs/project-enhancer/part-4-duck-review.md)
 - [Part 5](docs/project-enhancer/part-5-duck-review.md)
 - [Part 6](docs/project-enhancer/part-6-duck-review.md)
+- [Phase 1 isolated worker](docs/project-enhancer/phase-1-worker-duck-review.md)
 
 ## Current delivery boundary
 
@@ -296,9 +307,9 @@ The post-baseline workflow is implemented behind authenticated routes under `/ap
 - Version 2 change manifests, rollback references, structural/command validation, pull-request preparation, and GitHub branch/commit/pull-request delivery.
 - Workflow state and system events persist through the MongoDB boundary while retaining a bounded in-memory read-through cache.
 
-The worker policy blocks unverified executables, keeps commands inside the change workspace, strips inherited environment variables, disables network-dependent package-manager behavior where supported, and enforces time/output limits. OS-level memory and process quotas remain deployment hardening controls.
+The worker policy accepts only reviewed command shapes, keeps commands inside a copied scratch workspace, strips inherited environment variables, disables network-dependent package-manager behavior, and enforces file-count, directory-depth, byte, time, output, CPU, memory, PID, and tmpfs limits. The original extraction is mounted read-only and is fingerprint-checked after execution. Containers carry explicit ownership and lease labels, are removed after every job, and only expired stopped containers are eligible for orphan recovery.
 
-Production deployments must set `BASELINE_REQUIRE_ISOLATION=true` or rely on its production default. Until a verified OS/container worker is installed, repository command checks are reported as unavailable rather than executed unsafely. CI runs install, typecheck, lint, tests, audit, build, Chromium E2E, and whitespace checks through `.github/workflows/ci.yml`.
+Production deployments must set `BASELINE_REQUIRE_ISOLATION=true` or rely on its production default, configure `BASELINE_WORKER_IMAGE` with a reviewed `@sha256:` digest, and provide `BASELINE_WORKER_BROKER_URL` plus `BASELINE_WORKER_BROKER_TOKEN`. The API talks to the authenticated broker rather than holding Docker-daemon authority when deployed with the broker as a separate service. Readiness checks require both MongoDB and a successful worker preflight. Registry-dependent checks remain unavailable until a separately reviewed network policy is enabled. CI runs install, typecheck, lint, tests, audit, build, Chromium E2E, digest/entrypoint policy checks, Docker Scout scanning when available, Docker worker integration tests, and whitespace checks through `.github/workflows/ci.yml`. The current local Docker Scout scan found zero critical and nineteen high findings in the worker image; the image is not declared vulnerability-free until those high findings receive an approved remediation or exception.
 
 ## License
 

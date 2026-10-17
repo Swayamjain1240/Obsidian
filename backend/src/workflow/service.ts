@@ -21,6 +21,7 @@ import type { DurableWorkflowStore } from './store.js';
 import { GithubApiClient } from '../github/client.js';
 import type { AppConfig } from '../config.js';
 import { ChangeWorker, type AppliedWorkspace } from './change-worker.js';
+import type { RepositoryCommandExecutor } from '../workers/executor.js';
 
 export interface ChangeOperationInput {
   kind: 'add' | 'modify' | 'delete';
@@ -108,7 +109,8 @@ export class WorkflowService {
     private readonly completeness: Pick<CompletenessService, 'get'>,
     private readonly store: DurableWorkflowStore,
     private readonly eventSink?: DetectionEventSink,
-  ) { this.worker = new ChangeWorker(config); }
+    commandExecutor?: RepositoryCommandExecutor,
+  ) { this.worker = new ChangeWorker(config, commandExecutor); }
 
   public async createRepairPlan(ownerUserId: string, baselineRunId: string): Promise<RepairPlan> {
     const baseline = this.baseline.get(ownerUserId, baselineRunId);

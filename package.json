@@ -16,7 +16,8 @@
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "audit": "npm audit --audit-level=high"
+    "audit": "npm audit --audit-level=high",
+    "verify:worker-image": "node scripts/verify-worker-image.mjs"
   },
   "engines": {
     "node": ">=22.19.0"
