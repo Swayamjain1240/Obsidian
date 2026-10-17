@@ -60,13 +60,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error(`Invalid environment configuration: ${fields}`);
   }
 
+  const isProduction = result.data.NODE_ENV === 'production';
+
+  if (
+    isProduction &&
+    env.BASELINE_REQUIRE_ISOLATION === 'false'
+  ) {
+    throw new Error(
+      'Invalid environment configuration: BASELINE_REQUIRE_ISOLATION cannot be disabled in production.',
+    );
+  }
+
   return {
     ...result.data,
-    // Production must fail closed until a deployment supplies a verified
-    // OS/container worker. Local development and tests remain executable so
-    // their bounded runner contracts can be verified.
-    BASELINE_REQUIRE_ISOLATION: env.BASELINE_REQUIRE_ISOLATION === undefined
-      ? result.data.NODE_ENV === 'production'
-      : result.data.BASELINE_REQUIRE_ISOLATION,
+    BASELINE_REQUIRE_ISOLATION:
+      isProduction || result.data.BASELINE_REQUIRE_ISOLATION,
   };
 }

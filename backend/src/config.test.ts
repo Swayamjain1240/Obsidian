@@ -1,3 +1,4 @@
+
 import { describe, expect, it } from 'vitest';
 
 import { loadConfig } from './config.js';
@@ -22,11 +23,36 @@ describe('loadConfig', () => {
   });
 
   it('rejects missing required configuration', () => {
-    expect(() => loadConfig({ NODE_ENV: 'test' })).toThrow(/MONGODB_URI/);
+    expect(() => loadConfig({ NODE_ENV: 'test' }))
+      .toThrow(/MONGODB_URI/);
   });
 
   it('requires verified worker isolation by default in production', () => {
-    const config = loadConfig({ ...validEnvironment, NODE_ENV: 'production' });
+    const config = loadConfig({
+      ...validEnvironment,
+      NODE_ENV: 'production',
+    });
+
+    expect(config.BASELINE_REQUIRE_ISOLATION).toBe(true);
+  });
+
+  it('rejects disabling sandbox isolation in production', () => {
+    expect(() =>
+      loadConfig({
+        ...validEnvironment,
+        NODE_ENV: 'production',
+        BASELINE_REQUIRE_ISOLATION: 'false',
+      }),
+    ).toThrow(/cannot be disabled in production/);
+  });
+
+  it('allows explicit isolation in production', () => {
+    const config = loadConfig({
+      ...validEnvironment,
+      NODE_ENV: 'production',
+      BASELINE_REQUIRE_ISOLATION: 'true',
+    });
+
     expect(config.BASELINE_REQUIRE_ISOLATION).toBe(true);
   });
 });
