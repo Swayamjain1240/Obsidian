@@ -1,12 +1,13 @@
 import { useNavigate } from 'react-router-dom';
 
-import type { RepositorySummary } from '../api';
+import { selectRepository, type RepositorySummary } from '../api';
 import { RepositoryPicker } from '../components/RepositoryPicker';
 
 export function RepositoryPage() {
   const navigate = useNavigate();
 
-  const selectRepository = (repository: RepositorySummary) => {
+  const select = async (repository: RepositorySummary) => {
+    await selectRepository(repository);
     navigate('/project/detect', { state: { repository } });
   };
 
@@ -17,7 +18,7 @@ export function RepositoryPage() {
         <h1 id="repository-page-title">Choose a repository.</h1>
         <p className="muted">Only repositories returned by your GitHub session are selectable. Results are paginated so the workspace stays focused.</p>
       </div>
-      <RepositoryPicker onSelect={selectRepository} />
+      <RepositoryPicker onSelect={select} />
     </section>
   );
 }

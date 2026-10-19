@@ -87,9 +87,10 @@ async function waitForCompleteness(service: CompletenessService, runId: string):
 describe('completeness routes', () => {
   it('requires confirmed detection, then exposes review and scope selection through the authenticated API', async () => {
     const sessionStore = new SessionStore('a'.repeat(32));
-    const cookie = `obsidian_session=${sessionStore.create({ githubUserId: 7, githubLogin: 'user', accessToken: 'token' })}`;
+    const signedSession = sessionStore.create({ githubUserId: 7, githubLogin: 'user', accessToken: 'token' });
+    const cookie = `obsidian_session=${signedSession}`;
     const handles = new SnapshotHandleStore();
-    const handle = handles.create('7', snapshot);
+    const handle = handles.create('7', snapshot, Date.now(), sessionStore.get(signedSession)!.sessionId);
     const detection = new DetectionService(config, handles, detectionEngine);
     const completeness = new CompletenessService(config, completenessEngine);
     const app = createApp(config, { sessionStore, handleStore: handles, detectionService: detection, completenessService: completeness });

@@ -1,3 +1,5 @@
+import type { GithubCommitDetails, GithubTreeEntry } from './delivery-types.js';
+
 export interface GithubUser {
   id: number;
   login: string;
@@ -22,11 +24,13 @@ interface GithubCommitResponse {
 interface GithubCommitDetail {
   sha?: string;
   tree?: { sha?: string };
+  message?: string;
+  parents?: Array<{ sha?: string }>;
 }
 
 interface GithubBlobResponse { sha?: string }
 interface GithubTreeResponse { sha?: string }
-interface GithubPullRequestResponse { number?: number; html_url?: string }
+interface GithubPullRequestResponse { number?: number; html_url?: string; head?: { ref?: string; sha?: string }; base?: { ref?: string } }
 
 interface GithubTokenResponse {
   access_token?: string;
@@ -91,6 +95,10 @@ export class GithubApiClient {
     return this.request<GithubRepository[]>(url.toString());
   }
 
+  async getRepository(owner: string, name: string): Promise<GithubRepository> {
+    return this.request<GithubRepository>(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
+  }
+
   async getBranchCommitSha(repository: { owner: string; name: string; branch: string }): Promise<string> {
     const url = `https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/commits/${encodeURIComponent(repository.branch)}`;
     const commit = await this.request<GithubCommitResponse>(url);
@@ -100,6 +108,22 @@ export class GithubApiClient {
     }
 
     return commit.sha;
+  }
+
+  async getCommitDetails(repository: { owner: string; name: string; commitSha: string }): Promise<GithubCommitDetails> {
+    const detail = await this.request<GithubCommitDetail>(`https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/git/commits/${encodeURIComponent(repository.commitSha)}`);
+    if (!detail.sha || !/^[a-f0-9]{40}$/i.test(detail.sha) || !detail.tree?.sha || !/^[a-f0-9]{40}$/i.test(detail.tree.sha) || typeof detail.message !== 'string' || !Array.isArray(detail.parents) || detail.parents.some((parent) => typeof parent.sha !== 'string' || !/^[a-f0-9]{40}$/i.test(parent.sha))) {
+      throw new Error('GitHub did not return a valid commit detail.');
+    }
+    return { sha: detail.sha, treeSha: detail.tree.sha, message: detail.message, parentShas: detail.parents.map((parent) => parent.sha!) };
+  }
+
+  async getTreeEntries(repository: { owner: string; name: string; treeSha: string }): Promise<GithubTreeEntry[]> {
+    const url = new URL(`https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/git/trees/${encodeURIComponent(repository.treeSha)}`);
+    url.searchParams.set('recursive', '1');
+    const payload = await this.request<{ tree?: Array<{ path?: string; mode?: string; type?: string; sha?: string; size?: number }> }>(url.toString());
+    if (!Array.isArray(payload.tree)) throw new Error('GitHub did not return a valid tree.');
+    return payload.tree.filter((entry) => typeof entry.path === 'string').map((entry) => ({ path: entry.path!, mode: entry.mode ?? null, type: entry.type === 'blob' || entry.type === 'tree' || entry.type === 'commit' ? entry.type : null, sha: entry.sha ?? null, size: entry.size ?? null }));
   }
 
   async createBranch(repository: { owner: string; name: string; branch: string }, commitSha: string): Promise<void> {
@@ -115,6 +139,19 @@ export class GithubApiClient {
     message: string;
     files: Array<{ path: string; content?: string; delete?: boolean }>;
   }): Promise<string> {
+    const created = await this.createCommitForManifest(input);
+    await this.updateBranchRef({ owner: input.owner, name: input.name, branch: input.branch }, created.commitSha);
+    return created.commitSha;
+  }
+
+  async createCommitForManifest(input: {
+    owner: string;
+    name: string;
+    branch: string;
+    baseCommit: string;
+    message: string;
+    files: Array<{ path: string; content?: string; delete?: boolean }>;
+  }): Promise<{ commitSha: string; treeSha: string }> {
     const base = await this.request<GithubCommitDetail>(`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.name)}/git/commits/${encodeURIComponent(input.baseCommit)}`);
     if (!base.tree?.sha) throw new Error('GitHub did not return a base tree for the selected commit.');
     const tree: Array<{ path: string; mode: '100644'; type: 'blob'; sha: string | null }> = [];
@@ -131,14 +168,27 @@ export class GithubApiClient {
     if (!createdTree.sha) throw new Error('GitHub did not return a tree SHA.');
     const commit = await this.request<GithubCommitResponse>(`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.name)}/git/commits`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: input.message, tree: createdTree.sha, parents: [input.baseCommit] }) });
     if (!commit.sha) throw new Error('GitHub did not return a commit SHA.');
-    await this.request(`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.name)}/git/refs/heads/${encodeURIComponent(input.branch)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sha: commit.sha, force: false }) });
-    return commit.sha;
+    return { commitSha: commit.sha, treeSha: createdTree.sha };
+  }
+
+  async updateBranchRef(repository: { owner: string; name: string; branch: string }, commitSha: string): Promise<void> {
+    if (!/^[a-f0-9]{40}$/i.test(commitSha)) throw new Error('GitHub branch update requires a valid commit SHA.');
+    await this.request(`https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/git/refs/heads/${encodeURIComponent(repository.branch)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sha: commitSha, force: false }) });
   }
 
   async createPullRequest(input: { owner: string; name: string; title: string; body: string; head: string; base: string }): Promise<{ number: number; url: string }> {
     const response = await this.request<GithubPullRequestResponse>(`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.name)}/pulls`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: input.title, body: input.body, head: input.head, base: input.base }) });
     if (!response.number || !response.html_url) throw new Error('GitHub did not return a pull-request receipt.');
     return { number: response.number, url: response.html_url };
+  }
+
+  async listOpenPullRequests(input: { owner: string; name: string; head: string; base: string }): Promise<Array<{ number: number; url: string; headSha: string | null }>> {
+    const url = new URL(`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.name)}/pulls`);
+    url.searchParams.set('state', 'open');
+    url.searchParams.set('head', `${input.owner}:${input.head}`);
+    url.searchParams.set('base', input.base);
+    const values = await this.request<GithubPullRequestResponse[]>(url.toString());
+    return values.filter((value) => Number.isInteger(value.number) && typeof value.html_url === 'string').map((value) => ({ number: value.number!, url: value.html_url!, headSha: value.head?.sha ?? null }));
   }
 
   async downloadRepositoryArchive(repository: { owner: string; name: string; branch: string; commitSha?: string }, maxBytes: number): Promise<Uint8Array> {

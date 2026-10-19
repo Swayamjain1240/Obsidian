@@ -31,25 +31,30 @@ describe('snapshot intake route', () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'obsidian-router-'));
     const sessionStore = new SessionStore('a'.repeat(32));
     const signedSession = sessionStore.create({ githubUserId: 1, githubLogin: 'user', accessToken: 'github-token' });
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ sha: 'c'.repeat(40) }) })
+     const fetchMock = vi
+       .fn()
+       .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 9, name: 'repo', full_name: 'owner/repo', private: true, default_branch: 'main', html_url: 'https://github.com/owner/repo', language: 'TypeScript', updated_at: new Date(0).toISOString() }) })
+       .mockResolvedValueOnce({ ok: true, json: async () => ({ sha: 'c'.repeat(40) }) })
       .mockResolvedValueOnce({
         ok: true,
         headers: new Headers({ 'content-length': '4' }),
         arrayBuffer: async () => new TextEncoder().encode('data').buffer,
       });
-    vi.stubGlobal('fetch', fetchMock);
+     vi.stubGlobal('fetch', fetchMock);
 
-    try {
-      const response = await request(
-        createApp(config, {
-          sessionStore,
-          intakeService: new RepositoryIntakeService(new SnapshotStore(root, 1024)),
-        }),
+     try {
+       const app = createApp(config, { sessionStore, intakeService: new RepositoryIntakeService(new SnapshotStore(root, 1024)) });
+       await request(app)
+         .post('/api/v1/github/repositories/select')
+         .set('Cookie', `obsidian_session=${signedSession}`)
+         .set('Origin', config.FRONTEND_ORIGIN)
+         .send({ repositoryId: 9, owner: 'owner', name: 'repo' });
+       const response = await request(
+         app,
       )
-        .post('/api/v1/intake/snapshot')
-        .set('Cookie', `obsidian_session=${signedSession}`)
+         .post('/api/v1/intake/snapshot')
+         .set('Cookie', `obsidian_session=${signedSession}`)
+         .set('Origin', config.FRONTEND_ORIGIN)
         .send({ owner: 'owner', name: 'repo', branch: 'main' });
 
       expect(response.status).toBe(201);

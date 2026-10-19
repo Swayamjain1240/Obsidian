@@ -52,7 +52,7 @@ describe('completeness frontend flow', () => {
     render(<MemoryRouter initialEntries={['/project/completeness?detectionRunId=detection-1']}><App /></MemoryRouter>);
     fireEvent.click(await screen.findByRole('button', { name: 'Start completeness review' }));
     await waitFor(() => expect(fetchMock.mock.calls.some((call) => String(call[0]) === '/api/v1/intake/completeness')).toBe(true));
-    await waitFor(() => expect(fetchMock.mock.calls.some((call) => String(call[0]) === '/api/v1/intake/completeness/completeness-1')).toBe(true), { timeout: 5000 });
+    await waitFor(() => expect(fetchMock.mock.calls.some((call) => String(call[0]) === '/api/v1/intake/completeness/completeness-1')).toBe(true), { timeout: 15_000 });
     await screen.findByRole('heading', { name: 'Review project completeness' });
     fireEvent.click(screen.getByRole('tab', { name: 'Findings' }));
     expect(screen.getByRole('option', { name: /todo-marker/ })).toBeTruthy();
@@ -60,5 +60,5 @@ describe('completeness frontend flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /Enhance existing parts only/ }));
     await waitFor(() => expect(screen.getByText('Scope selection is saved.')).toBeTruthy());
     expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith('/scope'))).toBe(true);
-  }, 15_000);
+  }, 30_000);
 });

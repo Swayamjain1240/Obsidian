@@ -22,6 +22,7 @@ import {
   type BaselineRunStatus,
 } from './types.js';
 import type { DurableRunStore } from '../workflow/run-store.js';
+import { createRunContext, isPersistedRunContext } from '../workflow/run-context.js';
 import type { RepositoryCommandExecutor } from '../workers/executor.js';
 import { DockerBrokerExecutor } from '../workers/docker-broker.js';
 import { InMemoryWorkerLeaseStore, MongoWorkerLeaseStore } from '../workers/lease-store.js';
@@ -32,6 +33,13 @@ export interface BaselineScopeProvider {
     scopeMode: 'FULL' | 'EXISTING_ONLY';
     context: ConfirmedDetectionContext;
   };
+  selectedContextDurable?: (ownerUserId: string, completenessRunId: string, sessionId?: string) => Promise<SelectedCompletenessContextLike>;
+}
+
+interface SelectedCompletenessContextLike {
+  completenessRunId: string;
+  scopeMode: 'FULL' | 'EXISTING_ONLY';
+  context: ConfirmedDetectionContext;
 }
 
 export interface SelectedBaselineContext {
@@ -169,7 +177,32 @@ export class BaselineService {
   }
 
   public start(ownerUserId: string, completenessRunId: string, sessionId?: string): BaselineResult {
+    this.runStore?.assertWritable();
     const selected = this.scopeProvider.selectedContext(ownerUserId, completenessRunId);
+    return this.startSelected(ownerUserId, selected, sessionId);
+  }
+
+  public async startDurable(ownerUserId: string, completenessRunId: string, sessionId?: string): Promise<BaselineResult> {
+    this.runStore?.assertWritable();
+    const selected = this.scopeProvider.selectedContextDurable
+      ? await this.scopeProvider.selectedContextDurable(ownerUserId, completenessRunId, sessionId)
+      : this.scopeProvider.selectedContext(ownerUserId, completenessRunId);
+    const stored = this.createRun(ownerUserId, selected, sessionId);
+    await this.persist(stored);
+    this.recordEvent(stored, 'BASELINE_STARTED', 'Baseline checks were queued for the selected immutable snapshot.', 'passed');
+    void this.execute(stored);
+    return publicResult(stored.result);
+  }
+
+  private startSelected(ownerUserId: string, selected: SelectedCompletenessContextLike, sessionId?: string): BaselineResult {
+    const stored = this.createRun(ownerUserId, selected, sessionId);
+    void this.persist(stored);
+    this.recordEvent(stored, 'BASELINE_STARTED', 'Baseline checks were queued for the selected immutable snapshot.', 'passed');
+    void this.execute(stored);
+    return publicResult(stored.result);
+  }
+
+  private createRun(ownerUserId: string, selected: SelectedCompletenessContextLike, sessionId?: string): StoredRun {
     const stored: StoredRun = {
       ownerUserId,
       sessionId: sessionId ?? selected.context.sessionId,
@@ -181,24 +214,24 @@ export class BaselineService {
       result: this.initialResult(selected.completenessRunId, selected.context, selected.scopeMode),
     };
     this.runs.set(stored.result.runId, stored);
-    void this.persist(stored);
-    this.recordEvent(stored, 'BASELINE_STARTED', 'Baseline checks were queued for the selected immutable snapshot.', 'passed');
-    void this.execute(stored);
-    return publicResult(stored.result);
+    return stored;
   }
 
   public get(ownerUserId: string, runId: string): BaselineResult {
     return publicResult(this.ownedRun(ownerUserId, runId).result);
   }
 
-  public async getDurable(ownerUserId: string, runId: string): Promise<BaselineResult> {
+  public async getDurable(ownerUserId: string, runId: string, sessionId?: string): Promise<BaselineResult> {
     const stored = this.runs.get(runId);
     if (stored) {
       if (stored.ownerUserId !== ownerUserId) throw new BaselineServiceError('BASELINE_NOT_FOUND', 'Baseline run was not found.', 404);
+      if (sessionId && stored.sessionId !== sessionId) throw new BaselineServiceError('BASELINE_NOT_FOUND', 'Baseline run was not found.', 404);
       return publicResult(stored.result);
     }
-    const persisted = await this.runStore?.get<BaselineResult>(ownerUserId, runId);
-    if (persisted) return publicResult(persisted);
+    const persisted = await this.runStore?.getEnvelope<BaselineResult, ReturnType<typeof createRunContext>>(ownerUserId, runId);
+    if (persisted?.result && (!sessionId || persisted.context?.sessionId === sessionId)) return publicResult(persisted.result);
+    const legacy = await this.runStore?.get<BaselineResult>(ownerUserId, runId);
+    if (legacy && !sessionId) return publicResult(legacy);
     throw new BaselineServiceError('BASELINE_NOT_FOUND', 'Baseline run was not found.', 404);
   }
 
@@ -219,8 +252,26 @@ export class BaselineService {
     };
   }
 
+  public async selectedContextDurable(ownerUserId: string, runId: string, sessionId?: string): Promise<SelectedBaselineContext> {
+    const stored = this.runs.get(runId);
+    if (stored) {
+      if (sessionId && stored.sessionId !== sessionId) throw new BaselineServiceError('BASELINE_NOT_FOUND', 'Baseline run was not found.', 404);
+      return this.selectedContext(ownerUserId, runId);
+    }
+    const envelope = await this.runStore?.getEnvelope<BaselineResult, ReturnType<typeof createRunContext>>(ownerUserId, runId);
+    if (!envelope || !envelope.context || !isPersistedRunContext(envelope.context) || envelope.context.ownerUserId !== ownerUserId || (sessionId && envelope.context.sessionId !== sessionId)) throw new BaselineServiceError('BASELINE_NOT_FOUND', 'Baseline run was not found.', 404);
+    if (!['passed', 'failed', 'partial'].includes(envelope.result.status)) throw new BaselineServiceError('BASELINE_STATE_INVALID', 'Complete baseline checks before starting the next workflow phase.', 409);
+    return { baselineRunId: envelope.result.runId, completenessRunId: envelope.result.completenessRunId, scopeMode: envelope.result.scopeMode, context: { ...envelope.context.context, snapshot: { ...envelope.context.context.snapshot, repository: { ...envelope.context.context.snapshot.repository } }, languageCandidates: [...envelope.context.context.languageCandidates] } };
+  }
+
   public cancel(ownerUserId: string, runId: string): BaselineResult {
     const stored = this.ownedRun(ownerUserId, runId);
+    const result = this.applyCancellation(stored);
+    void this.persist(stored);
+    return result;
+  }
+
+  private applyCancellation(stored: StoredRun): BaselineResult {
     if (terminalStatuses.has(stored.result.status)) return publicResult(stored.result);
     stored.controller.abort(new Error('Baseline checks cancelled by the user.'));
     stored.lifecycleState = transition(stored.lifecycleState, 'cancelled');
@@ -228,9 +279,26 @@ export class BaselineService {
     stored.result.progress = { ...stored.result.progress, stage: 'cancelled' };
     stored.result.checks = stored.result.checks.map((check) => check.status === 'queued' || check.status === 'running' ? { ...check, status: 'cancelled', summary: 'The check was cancelled before completion.' } : check);
     stored.result.error = { code: 'BASELINE_CANCELLED', message: 'Baseline checks were cancelled. The immutable snapshot remains available.' };
-    void this.persist(stored);
     this.recordEvent(stored, 'RUN_CANCELLED', stored.result.error.message, 'skipped');
     return publicResult(stored.result);
+  }
+
+  public async cancelDurable(ownerUserId: string, runId: string, sessionId?: string): Promise<BaselineResult> {
+    const stored = this.runs.get(runId);
+    if (stored) {
+      if (stored.ownerUserId !== ownerUserId) throw new BaselineServiceError('BASELINE_NOT_FOUND', 'Baseline run was not found.', 404);
+      if (sessionId && stored.sessionId !== sessionId) throw new BaselineServiceError('BASELINE_NOT_FOUND', 'Baseline run was not found.', 404);
+      const result = this.applyCancellation(stored);
+      await this.persist(stored);
+      return result;
+    }
+    const envelope = await this.runStore?.getEnvelope<BaselineResult, ReturnType<typeof createRunContext>>(ownerUserId, runId);
+    if (!envelope || !envelope.context || envelope.context.ownerUserId !== ownerUserId || (sessionId && envelope.context.sessionId !== sessionId)) throw new BaselineServiceError('BASELINE_NOT_FOUND', 'Baseline run was not found.', 404);
+    if (terminalStatuses.has(envelope.result.status)) return publicResult(envelope.result);
+    const result = { ...envelope.result, status: 'cancelled' as const, progress: { ...envelope.result.progress, stage: 'cancelled' }, error: { code: 'BASELINE_CANCELLED', message: 'Baseline checks were cancelled. The immutable snapshot remains available.' } };
+    const context = { ...envelope.context, lifecycleState: 'cancelled', recovery: 'cancelled' as const, savedAt: new Date().toISOString() };
+    await this.runStore?.saveEnvelope(ownerUserId, runId, 'baseline', { ...envelope, result, context, lifecycleState: 'cancelled', recovery: 'cancelled', updatedAt: new Date().toISOString() });
+    return publicResult(result);
   }
 
   public listEvents(ownerUserId: string, runId: string): SystemEvent[] {
@@ -239,7 +307,8 @@ export class BaselineService {
   }
 
   private async persist(stored: StoredRun): Promise<void> {
-    await this.runStore?.save(stored.ownerUserId, stored.result.runId, 'baseline', publicResult(stored.result));
+    const context = createRunContext({ ownerUserId: stored.ownerUserId, sessionId: stored.sessionId, context: stored.context, lifecycleState: stored.lifecycleState, recovery: stored.result.status === 'cancelled' ? 'cancelled' : stored.result.status === 'failed' || stored.result.status === 'partial' ? 'failed' : stored.result.status === 'passed' ? 'awaiting_user_action' : 'resumable' });
+    await this.runStore?.saveEnvelope(stored.ownerUserId, stored.result.runId, 'baseline', { version: 1, ownerUserId: stored.ownerUserId, runId: stored.result.runId, phase: 'baseline', result: publicResult(stored.result), context, lifecycleState: stored.lifecycleState, recovery: context.recovery, updatedAt: new Date().toISOString() });
   }
 
   private initialResult(completenessRunId: string, context: ConfirmedDetectionContext, scopeMode: 'FULL' | 'EXISTING_ONLY'): BaselineResult {

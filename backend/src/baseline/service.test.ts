@@ -7,6 +7,7 @@ import type { SnapshotRecord } from '../intake/snapshot.js';
 import type { ConfirmedDetectionContext } from '../detection/service.js';
 import type { BaselinePlan } from './adapters.js';
 import { BaselineService, type BaselineEngine, type BaselineScopeProvider } from './service.js';
+import { DurableRunStore } from '../workflow/run-store.js';
 
 const config: AppConfig = {
   ...loadConfig({ NODE_ENV: 'test', MONGODB_URI: 'mongodb://localhost/obsidian-test', FRONTEND_ORIGIN: 'http://localhost:5173' }),
@@ -70,5 +71,14 @@ describe('baseline service', () => {
     expect(result.failedCount).toBe(1);
     expect(result.nextPhase).toBe('repair_review');
     expect(() => service.get('8', queued.runId)).toThrow(/not found/);
+  });
+
+  it('rehydrates a completed baseline result from a durable envelope', async () => {
+    const runStore = new DurableRunStore();
+    const first = new BaselineService(config, provider, engine('passed'), undefined, runStore);
+    const queued = await first.startDurable('7', 'completeness-1');
+    await waitFor(first, '7', queued.runId, ['passed']);
+    const second = new BaselineService(config, provider, engine('passed'), undefined, runStore);
+    expect((await second.getDurable('7', queued.runId)).status).toBe('passed');
   });
 });

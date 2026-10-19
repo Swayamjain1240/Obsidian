@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { loadConfig, type AppConfig } from '../config.js';
 import type { SystemEvent } from '../events.js';
 import { SnapshotHandleStore } from '../intake/handle-store.js';
+import { DurableRunStore } from '../workflow/run-store.js';
 import type { ExtractionRecord } from '../intake/extraction.js';
 import type { SnapshotRecord } from '../intake/snapshot.js';
 import { DetectionService, DetectionServiceError, type DetectionEngine } from './service.js';
@@ -157,5 +158,19 @@ describe('detection service', () => {
     const next = service.rescan('7', run.runId);
     expect(next.runId).not.toBe(run.runId);
     expect(next.snapshotId).toBe(snapshot.snapshotId);
+  });
+
+  it('rehydrates a confirmed detection context in a fresh service instance', async () => {
+    const handles = new SnapshotHandleStore();
+    const runStore = new DurableRunStore();
+    const handle = handles.create('7', snapshot, Date.now(), 'session-restart');
+    const first = new DetectionService(config, handles, engine, undefined, runStore);
+    const queued = await first.startDurable('7', handle, 'session-restart');
+    await waitFor(first, '7', queued.runId, 'awaiting_confirmation');
+
+    const second = new DetectionService(config, handles, engine, undefined, runStore);
+    const confirmed = await second.confirmDurable('7', queued.runId, ['typescript-react'], false, 'session-restart');
+    expect(confirmed.status).toBe('confirmed');
+    expect((await second.confirmedContextDurable('7', queued.runId, 'session-restart')).snapshot.snapshotId).toBe(snapshot.snapshotId);
   });
 });

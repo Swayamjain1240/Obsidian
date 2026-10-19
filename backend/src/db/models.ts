@@ -97,6 +97,7 @@ const workflowStateSchema = new Schema(
     ownerUserId: { type: String, required: true, index: true, immutable: true },
     kind: { type: String, required: true, index: true, immutable: true },
     stateId: { type: String, required: true, index: true, immutable: true },
+    revision: { type: Number, required: true, default: 1, min: 1 },
     payload: { type: Schema.Types.Mixed, required: true },
   },
   { timestamps: true },

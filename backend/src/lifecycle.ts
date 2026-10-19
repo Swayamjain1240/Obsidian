@@ -43,6 +43,10 @@ const allowedTransitions: Record<SessionState, readonly SessionState[]> = {
   cancelled: [],
 };
 
+export function isSessionState(value: unknown): value is SessionState {
+  return typeof value === 'string' && value in allowedTransitions;
+}
+
 export function canTransition(from: SessionState, to: SessionState): boolean {
   return allowedTransitions[from].includes(to);
 }

@@ -10,6 +10,8 @@ import { RepositoryIntakeService } from './service.js';
 import { SnapshotStore } from './snapshot-store.js';
 import { requireSameOrigin } from '../security.js';
 import { SnapshotHandleStore } from './handle-store.js';
+import { RepositorySelectionStore } from './repository-authorization.js';
+import { WorkflowPersistenceError } from '../workflow/store.js';
 
 const repositorySchema = z.object({
   owner: z.string().regex(/^[A-Za-z0-9_.-]+$/).max(100),
@@ -22,6 +24,7 @@ export function createIntakeRouter(
   sessionStore: SessionStore,
   intakeService?: RepositoryIntakeService,
   handleStore = new SnapshotHandleStore(),
+  selectionStore = new RepositorySelectionStore(),
 ) {
   const router = Router();
   const intake = intakeService ?? new RepositoryIntakeService(new SnapshotStore(config.SNAPSHOT_ROOT, config.SNAPSHOT_MAX_BYTES));
@@ -36,10 +39,21 @@ export function createIntakeRouter(
     }
 
     try {
-      const session = response.locals.githubSession as { accessToken: string };
-      const result = await intake.createSnapshot(new GithubApiClient(session.accessToken), parsed.data);
-      const userId = String((response.locals.githubSession as { githubUserId: number }).githubUserId);
-      const snapshotHandle = handleStore.create(userId, result.snapshot);
+       const session = response.locals.githubSession as { accessToken: string; sessionId: string; githubUserId: number };
+       const userId = String(session.githubUserId);
+        const selected = await selectionStore.getDurable(userId, session.sessionId);
+        if (!selected || selected.repository.full_name !== `${parsed.data.owner}/${parsed.data.name}` || selected.selectedBranch !== parsed.data.branch) {
+         response.status(409).json(errorBody('REPOSITORY_NOT_SELECTED', 'Select this repository through the authenticated repository picker before creating a snapshot.', response.locals.requestId as string));
+         return;
+       }
+       const result = await intake.createSnapshot(new GithubApiClient(session.accessToken), parsed.data);
+       const snapshotHandle = handleStore.create(userId, result.snapshot, Date.now(), session.sessionId);
+       try {
+         await handleStore.persist(userId, snapshotHandle);
+       } catch {
+         response.status(503).json(errorBody('INTERNAL_ERROR', 'The snapshot handle could not be durably recorded.', response.locals.requestId as string));
+         return;
+       }
       response.status(201).json({
         intake: {
           intakeId: result.intakeId,
@@ -61,9 +75,13 @@ export function createIntakeRouter(
         },
         requestId: response.locals.requestId,
       });
-    } catch {
-      response.status(502).json(errorBody('GITHUB_API_ERROR', 'Repository snapshot could not be created.', response.locals.requestId as string));
-    }
+     } catch (reason: unknown) {
+       if (reason instanceof WorkflowPersistenceError) {
+         response.status(503).json(errorBody('INTERNAL_ERROR', 'Workflow state could not be durably read.', response.locals.requestId as string));
+         return;
+       }
+       response.status(502).json(errorBody('GITHUB_API_ERROR', 'Repository snapshot could not be created.', response.locals.requestId as string));
+     }
   });
 
   return router;

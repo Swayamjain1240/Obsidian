@@ -34,6 +34,18 @@ jobs:
       - name: Unit and integration tests
         run: npm run test
 
+      - name: Phase 2 workflow correctness matrix
+        run: npm run test --workspace backend -- src/workflow
+
+      - name: Phase 2 restart and recovery verification
+        run: npm run test --workspace backend -- src/detection/service.test.ts src/completeness/service.test.ts src/baseline/service.test.ts src/workflow/workflow-recovery.integration.test.ts
+
+      - name: Phase 2 concurrency verification
+        run: npm run test --workspace backend -- src/workflow/workflow-concurrency.integration.test.ts src/workflow/store.test.ts src/workflow/idempotency.test.ts
+
+      - name: Phase 2 external-failure verification
+        run: npm run test --workspace backend -- src/workflow/workflow-external-failure.integration.test.ts src/github/client.test.ts
+
       - name: Dependency audit
         run: npm run audit
 
@@ -45,6 +57,9 @@ jobs:
 
       - name: Browser tests
         run: npm run e2e --workspace frontend
+
+      - name: Phase 2 workflow browser tests
+        run: npm run e2e --workspace frontend -- e2e/phase2-workflow.spec.ts e2e/phase2-workflow-failures.spec.ts
 
       - name: Set up BuildKit builder
         run: |

@@ -50,7 +50,7 @@ export function BaselinePage() {
         </section>
       ) : progress ? (
         <BaselineProgress run={run} phase={baseline.phase} busy={baseline.busy} error={baseline.error} onCancel={baseline.cancel} onReload={baseline.reload} />
-      ) : <><BaselineReviewPanel run={run} /><div className="workflow-actions"><Link className="primary-button" to={`/project/repair?baselineRunId=${encodeURIComponent(run.runId)}`}>Open repair review</Link><Link className="secondary-button" to={`/project/enhance?baselineRunId=${encodeURIComponent(run.runId)}`}>Analyze enhancements</Link></div></>}
+      ) : <><BaselineReviewPanel run={run} /><div className="workflow-actions">{run.status === 'failed' || run.status === 'partial' ? <Link className="primary-button" to={`/project/repair?baselineRunId=${encodeURIComponent(run.runId)}`}>Open repair review</Link> : null}{run.status === 'passed' || ((run.status === 'failed' || run.status === 'partial') && run.scopeMode === 'EXISTING_ONLY') ? <Link className="secondary-button" to={`/project/enhance?baselineRunId=${encodeURIComponent(run.runId)}`}>Analyze enhancements</Link> : null}{run.status === 'cancelled' ? <p className="muted">Baseline checks were cancelled. Restart baseline checks to continue.</p> : null}</div></>}
     </section>
   );
 }

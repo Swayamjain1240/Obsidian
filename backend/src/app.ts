@@ -29,6 +29,7 @@ import { checkDockerSandbox } from './workers/docker-preflight.js';
 import { DockerBrokerExecutor } from './workers/docker-broker.js';
 import type { RepositoryCommandExecutor } from './workers/executor.js';
 import { MongoWorkerLeaseStore, type WorkerLeaseStore } from './workers/lease-store.js';
+import { RepositorySelectionStore } from './intake/repository-authorization.js';
 
 export function createApp(config: AppConfig, dependencies: {
   sessionStore?: SessionStore;
@@ -107,14 +108,16 @@ export function createApp(config: AppConfig, dependencies: {
   app.use('/auth', createAuthRouter(config, undefined, sessionStore));
   if (sessionStore) {
     const eventSink = dependencies.detectionEventSink ?? createDurableEventSink();
-    const runStore = new DurableRunStore();
-    const handleStore = dependencies.handleStore ?? new SnapshotHandleStore();
+    const runStore = new DurableRunStore(config.NODE_ENV !== 'test');
+    const workflowStore = new DurableWorkflowStore(config.NODE_ENV !== 'test');
+    const handleStore = dependencies.handleStore ?? new SnapshotHandleStore(60 * 60 * 1000, 10_000, workflowStore);
+    const selectionStore = new RepositorySelectionStore(workflowStore);
     const detectionService = dependencies.detectionService ?? new DetectionService(config, handleStore, undefined, eventSink, runStore);
     const completenessService = dependencies.completenessService ?? new CompletenessService(config, undefined, eventSink, runStore);
     const baselineService = dependencies.baselineService ?? new BaselineService(config, completenessService, undefined, eventSink, runStore, workerExecutor);
-    const workflowService = dependencies.workflowService ?? new WorkflowService(config, baselineService, completenessService, new DurableWorkflowStore(), eventSink, workerExecutor);
-    app.use('/api/v1/github', createGithubRouter(sessionStore));
-    app.use('/api/v1/intake', createIntakeRouter(config, sessionStore, dependencies.intakeService, handleStore));
+    const workflowService = dependencies.workflowService ?? new WorkflowService(config, baselineService, completenessService, workflowStore, eventSink, workerExecutor);
+    app.use('/api/v1/github', createGithubRouter(sessionStore, config, selectionStore));
+    app.use('/api/v1/intake', createIntakeRouter(config, sessionStore, dependencies.intakeService, handleStore, selectionStore));
     app.use('/api/v1/intake/detections', createDetectionRouter(config, sessionStore, detectionService));
     app.use('/api/v1/intake/completeness', createCompletenessRouter(config, sessionStore, detectionService, completenessService));
     app.use('/api/v1/intake/baseline', createBaselineRouter(config, sessionStore, baselineService));

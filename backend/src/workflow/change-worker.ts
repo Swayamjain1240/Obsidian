@@ -15,6 +15,7 @@ import { InMemoryWorkerLeaseStore, MongoWorkerLeaseStore } from '../workers/leas
 
 export interface AppliedWorkspace {
   workspacePath: string;
+  baseExtraction: ExtractionRecord;
   extraction: ExtractionRecord;
   operations: ChangeOperation[];
 }
@@ -97,7 +98,7 @@ export class ChangeWorker {
       await mkdir(path.dirname(target), { recursive: true });
       await writeFile(target, operation.content, { mode: 0o600 });
     }
-    return { workspacePath, extraction: await publishRecord(context.snapshot, workspacePath), operations: operations.map((operation) => ({ ...operation })) };
+    return { workspacePath, baseExtraction: extraction, extraction: await publishRecord(context.snapshot, workspacePath), operations: operations.map((operation) => ({ ...operation })) };
   }
 
   public async validate(context: ConfirmedDetectionContext, applied: AppliedWorkspace): Promise<ChangeValidation> {

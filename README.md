@@ -4,7 +4,7 @@
 
 Obsidian is a review-first, multi-language project enhancement platform. It connects to a GitHub repository, captures an immutable snapshot, detects the stack from evidence, checks completeness, validates the baseline, and prepares carefully scoped repair and enhancement work without silently changing the original project.
 
-![Status](https://img.shields.io/badge/status-Part%206%20complete-7c5ce0)
+![Status](https://img.shields.io/badge/status-Phase%202%20workflow%20correctness%20complete-2ea44f)
 ![Node](https://img.shields.io/badge/node-%3E%3D22.19.0-3c873a)
 ![License](https://img.shields.io/badge/license-TBD-lightgrey)
 
@@ -26,7 +26,7 @@ Obsidian is a review-first, multi-language project enhancement platform. It conn
 
 ## What is implemented
 
-Parts 1–6 are complete for the current scope:
+Parts 1–6 and Phase 2 workflow correctness are complete for the current scope. The feature branch is not production-authorized:
 
 - GitHub OAuth session boundary and authenticated repository selection.
 - Branch/commit resolution and immutable repository snapshots.
@@ -39,6 +39,8 @@ Parts 1–6 are complete for the current scope:
 - Owner-bound lifecycle routes, safe system events, polling, cancellation, review screens, and responsive desktop/tablet/mobile layouts.
 - Repair plans with approval, isolated change workspaces, repair validation receipts, enhancement recommendations, recommendation approval, Version 2 manifests, rollback references, validation, branch/commit delivery, and pull-request creation boundaries.
 - Durable MongoDB-backed workflow state and event persistence, verified command allowlists, bounded change workers, secret-pattern scanning, and expanded language-adapter coverage.
+- Server-authoritative repository/branch selection, durable snapshot handles, versioned workflow state, compare-and-set revisions, owner-bound idempotency receipts, approval ledgers, bounded exact diff previews, repair checkpoints, recovery states, and delivery reconciliation.
+- Version 2 exact-diff acknowledgement, explicit rebuild/cancel recovery, durable branch/commit/ref/pull-request receipts, remote tree reconciliation, recommendation viewed/decision receipts, and API-authoritative recovery guards.
 
 AI provider calls and richer adapter-specific commands remain optional integrations. Production baseline execution fails closed unless a verified OS/container worker is provided; the local bounded runner is intended for development and tests.
 
@@ -136,7 +138,8 @@ Only `VITE_*` values are exposed to browser code. Never place credentials, token
 | `npm run typecheck` | Typecheck frontend, backend, and AI services. |
 | `npm run build` | Build all workspaces. |
 | `npm run audit` | Run the high-severity npm audit. |
-| `npm run e2e --workspace frontend` | Run Chromium viewport tests. |
+| `npm run e2e --workspace frontend` | Run Chromium viewport and workflow browser tests. |
+| `npm run e2e --workspace frontend -- e2e/phase2-workflow.spec.ts e2e/phase2-workflow-failures.spec.ts` | Run the Phase 2 workflow browser checks only. |
 | `npm run lint` | Run the configured TypeScript lint checks. |
 
 Workspace-specific commands can be run with npm's workspace flag, for example `npm run test --workspace backend`.
@@ -298,6 +301,7 @@ Duck reviews record evidence and deferred decisions for each completed part:
 - [Part 5](docs/project-enhancer/part-5-duck-review.md)
 - [Part 6](docs/project-enhancer/part-6-duck-review.md)
 - [Phase 1 isolated worker](docs/project-enhancer/phase-1-worker-duck-review.md)
+- [Phase 2 workflow correctness plan](docs/project-enhancer/phase-2-workflow-correctness-plan.md)
 
 ## Current delivery boundary
 
@@ -307,6 +311,8 @@ The post-baseline workflow is implemented behind authenticated routes under `/ap
 - Enhancement analysis from existing completeness areas, recommendation approval, and Version 2 start.
 - Version 2 change manifests, rollback references, structural/command validation, pull-request preparation, and GitHub branch/commit/pull-request delivery.
 - Workflow state and system events persist through the MongoDB boundary while retaining a bounded in-memory read-through cache.
+
+Phase 2 is complete for workflow correctness and remains not production-authorized. Current evidence covers root typecheck, lint, unit/integration tests, build, audit, Docker worker integration, worker-image policy verification, Docker Scout scanning, and browser workflow checks. The Phase 2 master plan records the final Duck result and the remaining production boundaries.
 
 The worker policy accepts only reviewed command shapes, keeps commands inside a copied scratch workspace, strips inherited environment variables, disables network-dependent package-manager behavior, and enforces file-count, directory-depth, byte, time, output, CPU, memory, PID, and tmpfs limits. The original extraction is mounted read-only and is fingerprint-checked after execution. Containers carry explicit ownership and lease labels, are removed after every job, and only expired stopped containers are eligible for orphan recovery.
 

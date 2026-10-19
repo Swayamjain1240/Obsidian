@@ -60,7 +60,7 @@ describe('detection routes', () => {
     const sessionStore = new SessionStore('a'.repeat(32));
     const signedSession = sessionStore.create({ githubUserId: 7, githubLogin: 'user', accessToken: 'token' });
     const handles = new SnapshotHandleStore();
-    const handle = handles.create('7', snapshot);
+    const handle = handles.create('7', snapshot, Date.now(), sessionStore.get(signedSession)!.sessionId);
     const app = createApp(config, { sessionStore, handleStore: handles, detectionService: new DetectionService(config, handles, engine) });
     const cookie = `obsidian_session=${signedSession}`;
 
@@ -82,7 +82,7 @@ describe('detection routes', () => {
     const firstCookie = `obsidian_session=${first.create({ githubUserId: 7, githubLogin: 'one', accessToken: 'token' })}`;
     const secondCookie = `obsidian_session=${first.create({ githubUserId: 8, githubLogin: 'two', accessToken: 'token' })}`;
     const handles = new SnapshotHandleStore();
-    const handle = handles.create('7', snapshot);
+    const handle = handles.create('7', snapshot, Date.now(), first.get(firstCookie.split('=')[1])!.sessionId);
     const app = createApp(config, { sessionStore: first, handleStore: handles, detectionService: new DetectionService(config, handles, engine) });
 
     const started = await request(app).post('/api/v1/intake/detections').set('Cookie', firstCookie).send({ snapshotHandle: handle });

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import type { AuthSessionState } from '../hooks/useAuthSession';
 import { useViewport } from '../hooks/useViewport';
 import { useGsapReveal } from '../motion';
-import type { RepositorySummary } from '../api';
+import { selectRepository as selectRepositoryApi, type RepositorySummary } from '../api';
 import { RepositoryPicker } from '../components/RepositoryPicker';
 import { PanelTabs } from '../components/PanelTabs';
 import { PagedText, summary } from '../components/PagedText';
@@ -20,7 +20,7 @@ export function HomePage({ session, onSignOut }: HomePageProps) {
   const contentRef = useRef<HTMLElement>(null);
   useGsapReveal(contentRef);
   useEffect(() => { if (session.status === 'authenticated') setView('repositories'); else setView('welcome'); }, [session.status]);
-  const selectRepository = (repository: RepositorySummary) => navigate('/project/detect', { state: { repository } });
+  const selectRepository = async (repository: RepositorySummary) => { await selectRepositoryApi(repository); navigate('/project/detect', { state: { repository } }); };
 
   const welcome = (
     <div className="hero-copy">

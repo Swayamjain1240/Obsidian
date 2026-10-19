@@ -15,6 +15,7 @@ import {
   type ScopeMode,
 } from './types.js';
 import type { DurableRunStore } from '../workflow/run-store.js';
+import { createRunContext, isPersistedRunContext } from '../workflow/run-context.js';
 
 export interface CompletenessEngine {
   extract(
@@ -103,7 +104,26 @@ export class CompletenessService {
   }
 
   public start(ownerUserId: string, context: ConfirmedDetectionContext, sessionId = context.sessionId): CompletenessResult {
+    this.runStore?.assertWritable();
     if (context.ownerUserId !== ownerUserId) throw new CompletenessServiceError('COMPLETENESS_STATE_INVALID', 'The detection run is not owned by this user.', 409);
+    const stored = this.createRun(ownerUserId, context, sessionId);
+    void this.persist(stored);
+    this.recordEvent(stored, 'COMPLETENESS_SCAN_STARTED', 'Completeness review was queued for the confirmed immutable snapshot.');
+    void this.execute(stored);
+    return publicResult(stored.result);
+  }
+
+  public async startDurable(ownerUserId: string, context: ConfirmedDetectionContext, sessionId = context.sessionId): Promise<CompletenessResult> {
+    this.runStore?.assertWritable();
+    if (context.ownerUserId !== ownerUserId) throw new CompletenessServiceError('COMPLETENESS_STATE_INVALID', 'The detection run is not owned by this user.', 409);
+    const stored = this.createRun(ownerUserId, context, sessionId);
+    await this.persist(stored);
+    this.recordEvent(stored, 'COMPLETENESS_SCAN_STARTED', 'Completeness review was queued for the confirmed immutable snapshot.');
+    void this.execute(stored);
+    return publicResult(stored.result);
+  }
+
+  private createRun(ownerUserId: string, context: ConfirmedDetectionContext, sessionId: string): StoredRun {
     const stored: StoredRun = {
       ownerUserId,
       sessionId,
@@ -113,29 +133,35 @@ export class CompletenessService {
       result: this.initialResult(context),
     };
     this.runs.set(stored.result.runId, stored);
-    void this.persist(stored);
-    this.recordEvent(stored, 'COMPLETENESS_SCAN_STARTED', 'Completeness review was queued for the confirmed immutable snapshot.');
-    void this.execute(stored);
-    return publicResult(stored.result);
+    return stored;
   }
 
   public get(ownerUserId: string, runId: string): CompletenessResult {
     return publicResult(this.ownedRun(ownerUserId, runId).result);
   }
 
-  public async getDurable(ownerUserId: string, runId: string): Promise<CompletenessResult> {
+  public async getDurable(ownerUserId: string, runId: string, sessionId?: string): Promise<CompletenessResult> {
     const stored = this.runs.get(runId);
     if (stored) {
       if (stored.ownerUserId !== ownerUserId) throw new CompletenessServiceError('COMPLETENESS_NOT_FOUND', 'Completeness run was not found.', 404);
+      if (sessionId && stored.sessionId !== sessionId) throw new CompletenessServiceError('COMPLETENESS_NOT_FOUND', 'Completeness run was not found.', 404);
       return publicResult(stored.result);
     }
-    const persisted = await this.runStore?.get<CompletenessResult>(ownerUserId, runId);
-    if (persisted) return publicResult(persisted);
+    const persisted = await this.runStore?.getEnvelope<CompletenessResult, ReturnType<typeof createRunContext>>(ownerUserId, runId);
+    if (persisted?.result && (!sessionId || persisted.context?.sessionId === sessionId)) return publicResult(persisted.result);
+    const legacy = await this.runStore?.get<CompletenessResult>(ownerUserId, runId);
+    if (legacy && !sessionId) return publicResult(legacy);
     throw new CompletenessServiceError('COMPLETENESS_NOT_FOUND', 'Completeness run was not found.', 404);
   }
 
   public selectScope(ownerUserId: string, runId: string, scopeMode: ScopeMode): CompletenessResult {
     const stored = this.ownedRun(ownerUserId, runId);
+    const result = this.applyScopeSelection(stored, scopeMode);
+    void this.persist(stored);
+    return result;
+  }
+
+  private applyScopeSelection(stored: StoredRun, scopeMode: ScopeMode): CompletenessResult {
     if (stored.result.status !== 'awaiting_scope') {
       throw new CompletenessServiceError('COMPLETENESS_STATE_INVALID', 'This completeness review is not awaiting scope selection.', 409);
     }
@@ -144,9 +170,26 @@ export class CompletenessService {
     stored.result.status = 'scope_selected';
     stored.result.nextPhase = 'baseline_testing';
     stored.result.progress = { ...stored.result.progress, stage: 'scope_selected' };
-    void this.persist(stored);
     this.recordEvent(stored, 'SCOPE_MODE_SELECTED', `Scope mode ${scopeMode} was selected. Baseline checks are the next phase.`, false);
     return publicResult(stored.result);
+  }
+
+  public async selectScopeDurable(ownerUserId: string, runId: string, scopeMode: ScopeMode, sessionId?: string): Promise<CompletenessResult> {
+    const stored = this.runs.get(runId);
+    if (stored) {
+      if (stored.ownerUserId !== ownerUserId) throw new CompletenessServiceError('COMPLETENESS_NOT_FOUND', 'Completeness run was not found.', 404);
+      if (sessionId && stored.sessionId !== sessionId) throw new CompletenessServiceError('COMPLETENESS_NOT_FOUND', 'Completeness run was not found.', 404);
+      const result = this.applyScopeSelection(stored, scopeMode);
+      await this.persist(stored);
+      return result;
+    }
+    const envelope = await this.runStore?.getEnvelope<CompletenessResult, ReturnType<typeof createRunContext>>(ownerUserId, runId);
+    if (!envelope || !envelope.context || !isPersistedRunContext(envelope.context) || envelope.context.ownerUserId !== ownerUserId || (sessionId && envelope.context.sessionId !== sessionId)) throw new CompletenessServiceError('COMPLETENESS_NOT_FOUND', 'Completeness run was not found.', 404);
+    if (envelope.result.status !== 'awaiting_scope') throw new CompletenessServiceError('COMPLETENESS_STATE_INVALID', 'This completeness review is not awaiting scope selection.', 409);
+    const result = { ...envelope.result, status: 'scope_selected' as const, scopeMode, nextPhase: 'baseline_testing' as const, progress: { ...envelope.result.progress, stage: 'scope_selected' } };
+    const context = { ...envelope.context, lifecycleState: 'scope_selected', recovery: 'awaiting_user_action' as const, savedAt: new Date().toISOString() };
+    await this.runStore?.saveEnvelope(ownerUserId, runId, 'completeness', { ...envelope, result, context, lifecycleState: 'scope_selected', recovery: 'awaiting_user_action', updatedAt: new Date().toISOString() });
+    return publicResult(result);
   }
 
   public selectedContext(ownerUserId: string, runId: string): SelectedCompletenessContext {
@@ -168,17 +211,52 @@ export class CompletenessService {
     };
   }
 
+  public async selectedContextDurable(ownerUserId: string, runId: string, sessionId?: string): Promise<SelectedCompletenessContext> {
+    const stored = this.runs.get(runId);
+    if (stored) {
+      if (sessionId && stored.sessionId !== sessionId) throw new CompletenessServiceError('COMPLETENESS_NOT_FOUND', 'Completeness run was not found.', 404);
+      return this.selectedContext(ownerUserId, runId);
+    }
+    const envelope = await this.runStore?.getEnvelope<CompletenessResult, ReturnType<typeof createRunContext>>(ownerUserId, runId);
+    if (!envelope || !envelope.context || !isPersistedRunContext(envelope.context) || envelope.context.ownerUserId !== ownerUserId || (sessionId && envelope.context.sessionId !== sessionId)) throw new CompletenessServiceError('COMPLETENESS_NOT_FOUND', 'Completeness run was not found.', 404);
+    if (envelope.result.status !== 'scope_selected' || !envelope.result.scopeMode) throw new CompletenessServiceError('COMPLETENESS_STATE_INVALID', 'Select a baseline scope before starting baseline checks.', 409);
+    return { completenessRunId: envelope.result.runId, scopeMode: envelope.result.scopeMode, context: { ...envelope.context.context, snapshot: { ...envelope.context.context.snapshot, repository: { ...envelope.context.context.snapshot.repository } }, languageCandidates: [...envelope.context.context.languageCandidates] } };
+  }
+
   public cancel(ownerUserId: string, runId: string): CompletenessResult {
     const stored = this.ownedRun(ownerUserId, runId);
+    const result = this.applyCancellation(stored);
+    void this.persist(stored);
+    return result;
+  }
+
+  private applyCancellation(stored: StoredRun): CompletenessResult {
     if (terminalStatuses.has(stored.result.status)) return publicResult(stored.result);
     stored.controller.abort(new Error('Completeness review cancelled by the user.'));
     stored.lifecycleState = transition(stored.lifecycleState, 'cancelled');
     stored.result.status = 'cancelled';
     stored.result.progress = { ...stored.result.progress, stage: 'cancelled' };
     stored.result.error = { code: 'COMPLETENESS_CANCELLED', message: 'Completeness review was cancelled. The immutable snapshot remains available.' };
-    void this.persist(stored);
     this.recordEvent(stored, 'RUN_CANCELLED', 'Completeness review was cancelled before scope selection.', false);
     return publicResult(stored.result);
+  }
+
+  public async cancelDurable(ownerUserId: string, runId: string, sessionId?: string): Promise<CompletenessResult> {
+    const stored = this.runs.get(runId);
+    if (stored) {
+      if (stored.ownerUserId !== ownerUserId) throw new CompletenessServiceError('COMPLETENESS_NOT_FOUND', 'Completeness run was not found.', 404);
+      if (sessionId && stored.sessionId !== sessionId) throw new CompletenessServiceError('COMPLETENESS_NOT_FOUND', 'Completeness run was not found.', 404);
+      const result = this.applyCancellation(stored);
+      await this.persist(stored);
+      return result;
+    }
+    const envelope = await this.runStore?.getEnvelope<CompletenessResult, ReturnType<typeof createRunContext>>(ownerUserId, runId);
+    if (!envelope || !envelope.context || envelope.context.ownerUserId !== ownerUserId || (sessionId && envelope.context.sessionId !== sessionId)) throw new CompletenessServiceError('COMPLETENESS_NOT_FOUND', 'Completeness run was not found.', 404);
+    if (terminalStatuses.has(envelope.result.status)) return publicResult(envelope.result);
+    const result = { ...envelope.result, status: 'cancelled' as const, progress: { ...envelope.result.progress, stage: 'cancelled' }, error: { code: 'COMPLETENESS_CANCELLED', message: 'Completeness review was cancelled. The immutable snapshot remains available.' } };
+    const context = { ...envelope.context, lifecycleState: 'cancelled', recovery: 'cancelled' as const, savedAt: new Date().toISOString() };
+    await this.runStore?.saveEnvelope(ownerUserId, runId, 'completeness', { ...envelope, result, context, lifecycleState: 'cancelled', recovery: 'cancelled', updatedAt: new Date().toISOString() });
+    return publicResult(result);
   }
 
   public listEvents(ownerUserId: string, runId: string): SystemEvent[] {
@@ -187,7 +265,8 @@ export class CompletenessService {
   }
 
   private async persist(stored: StoredRun): Promise<void> {
-    await this.runStore?.save(stored.ownerUserId, stored.result.runId, 'completeness', publicResult(stored.result));
+    const context = createRunContext({ ownerUserId: stored.ownerUserId, sessionId: stored.sessionId, context: stored.context, lifecycleState: stored.lifecycleState, recovery: stored.result.status === 'cancelled' ? 'cancelled' : stored.result.status === 'failed' ? 'failed' : stored.result.status === 'awaiting_scope' || stored.result.status === 'scope_selected' ? 'awaiting_user_action' : 'resumable' });
+    await this.runStore?.saveEnvelope(stored.ownerUserId, stored.result.runId, 'completeness', { version: 1, ownerUserId: stored.ownerUserId, runId: stored.result.runId, phase: 'completeness', result: publicResult(stored.result), context, lifecycleState: stored.lifecycleState, recovery: context.recovery, updatedAt: new Date().toISOString() });
   }
 
   private initialResult(context: ConfirmedDetectionContext): CompletenessResult {

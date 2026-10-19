@@ -42,4 +42,12 @@ describe('GitHub API client', () => {
     expect(calledUrl.searchParams.get('page')).toBe('2');
     expect(calledUrl.searchParams.get('per_page')).toBe('100');
   });
+
+  it('updates only the delivery branch without force-push', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal('fetch', fetchMock);
+    await new GithubApiClient('access-token').updateBranchRef({ owner: 'owner', name: 'repo', branch: 'ai/enhancement/run' }, 'a'.repeat(40));
+    const request = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(request.body))).toMatchObject({ sha: 'a'.repeat(40), force: false });
+  });
 });

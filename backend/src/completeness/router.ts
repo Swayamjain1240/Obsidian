@@ -8,6 +8,8 @@ import { DetectionService, DetectionServiceError } from '../detection/service.js
 import { errorBody } from '../http/response.js';
 import { requireSameOrigin } from '../security.js';
 import { CompletenessService, CompletenessServiceError } from './service.js';
+import { DurableRunPersistenceError } from '../workflow/run-store.js';
+import { WorkflowPersistenceError } from '../workflow/store.js';
 
 const startSchema = z.object({ detectionRunId: z.string().min(1).max(160) });
 const scopeSchema = z.object({ mode: z.enum(['FULL', 'EXISTING_ONLY']) });
@@ -26,6 +28,14 @@ function respondError(response: Response, reason: unknown): void {
     response.status(reason.status).json(errorBody(reason.code, reason.message, response.locals.requestId as string));
     return;
   }
+  if (reason instanceof DurableRunPersistenceError) {
+    response.status(503).json(errorBody('INTERNAL_ERROR', 'Run state could not be durably persisted.', response.locals.requestId as string));
+    return;
+  }
+  if (reason instanceof WorkflowPersistenceError) {
+    response.status(503).json(errorBody('INTERNAL_ERROR', 'Workflow state could not be durably read.', response.locals.requestId as string));
+    return;
+  }
   response.status(500).json(errorBody('INTERNAL_ERROR', 'The completeness request could not be completed.', response.locals.requestId as string));
 }
 
@@ -39,38 +49,38 @@ export function createCompletenessRouter(
   router.use(requireGithubSession(sessionStore));
   router.use(requireSameOrigin(config.FRONTEND_ORIGIN));
 
-  router.post('/', (request, response) => {
+  router.post('/', async (request, response) => {
     const parsed = startSchema.safeParse(request.body);
     if (!parsed.success) {
       response.status(400).json(errorBody('INVALID_INPUT', 'Detection run ID is invalid.', response.locals.requestId as string));
       return;
     }
     try {
-      const context = detection.confirmedContext(owner(request), parsed.data.detectionRunId);
-      response.status(202).json({ run: completeness.start(owner(request), context, sessionId(response)), requestId: response.locals.requestId });
+       const context = await detection.confirmedContextDurable(owner(request), parsed.data.detectionRunId, sessionId(response));
+       response.status(202).json({ run: await completeness.startDurable(owner(request), context, sessionId(response)), requestId: response.locals.requestId });
     } catch (reason: unknown) { respondError(response, reason); }
   });
 
   router.get('/:runId', async (request, response) => {
     try {
-      response.json({ run: await completeness.getDurable(owner(request), request.params.runId), requestId: response.locals.requestId });
+       response.json({ run: await completeness.getDurable(owner(request), request.params.runId, sessionId(response)), requestId: response.locals.requestId });
     } catch (reason: unknown) { respondError(response, reason); }
   });
 
-  router.post('/:runId/scope', (request, response) => {
+  router.post('/:runId/scope', async (request, response) => {
     const parsed = scopeSchema.safeParse(request.body);
     if (!parsed.success) {
       response.status(400).json(errorBody('INVALID_INPUT', 'Scope mode is invalid.', response.locals.requestId as string));
       return;
     }
     try {
-      response.json({ run: completeness.selectScope(owner(request), request.params.runId, parsed.data.mode), requestId: response.locals.requestId });
+       response.json({ run: await completeness.selectScopeDurable(owner(request), request.params.runId, parsed.data.mode, sessionId(response)), requestId: response.locals.requestId });
     } catch (reason: unknown) { respondError(response, reason); }
   });
 
-  router.post('/:runId/cancel', (request, response) => {
+  router.post('/:runId/cancel', async (request, response) => {
     try {
-      response.json({ run: completeness.cancel(owner(request), request.params.runId), requestId: response.locals.requestId });
+       response.json({ run: await completeness.cancelDurable(owner(request), request.params.runId, sessionId(response)), requestId: response.locals.requestId });
     } catch (reason: unknown) { respondError(response, reason); }
   });
 
