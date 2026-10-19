@@ -2,7 +2,7 @@ name: Obsidian CI
 
 on:
   push:
-    branches: [main, fix/production-stabilization]
+    branches: [main, fix/production-stabilization, feat/phase-2-workflow-correctness]
   pull_request:
 
 permissions:
