@@ -10,7 +10,7 @@ import type {
 } from '../baseline/runner.js';
 
 import type { RepositoryCommandExecutor } from './executor.js';
-import { defaultDockerLimits, dockerSecurityArgs, type DockerResourceLimits } from './docker-policy.js';
+import { defaultDockerLimits, dockerSecurityArgs, dockerWorkerUser, type DockerResourceLimits } from './docker-policy.js';
 import { buildSnapshotMountArgs } from './workspace-mount.js';
 import { inspectSnapshotWorkspace, type WorkspaceLimits } from './workspace-policy.js';
 
@@ -311,7 +311,7 @@ export class DockerExecutor implements RepositoryCommandExecutor {
     const sourceLimits = workspaceLimits(options, this.configuredWorkspaceLimits);
     let securityArgs: string[];
     try {
-      securityArgs = dockerSecurityArgs({ ...defaultDockerLimits, ...limits });
+      securityArgs = dockerSecurityArgs({ ...defaultDockerLimits, ...limits }, dockerWorkerUser());
     } catch {
       return result('not_available', 'Invalid Docker sandbox resource limits.');
     }

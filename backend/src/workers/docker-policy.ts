@@ -23,8 +23,26 @@ export const defaultDockerLimits: DockerResourceLimits = {
   tmpTmpfsBytes: 64 * 1024 * 1024,
 };
 
+const DEFAULT_DOCKER_USER = '1000:1000';
+
+/**
+ * Bind-mounted extracted files are intentionally mode 0600 on the host. Use
+ * the non-root identity that owns the worker process on POSIX hosts so the
+ * container can read those files without making the snapshot world-readable.
+ * Windows Docker Desktop does not expose a meaningful POSIX identity here.
+ */
+export function dockerWorkerUser(): string {
+  const uid = process.getuid?.();
+  const gid = process.getgid?.();
+  if (uid !== undefined && gid !== undefined && uid > 0 && gid > 0 && uid <= 0xffffffff && gid <= 0xffffffff) {
+    return `${uid}:${gid}`;
+  }
+  return DEFAULT_DOCKER_USER;
+}
+
 export function dockerSecurityArgs(
   limits: DockerResourceLimits = defaultDockerLimits,
+  user = DEFAULT_DOCKER_USER,
 ): string[] {
   if (
     !Number.isSafeInteger(limits.memoryBytes) ||
@@ -40,9 +58,10 @@ export function dockerSecurityArgs(
     limits.workspaceTmpfsBytes > limits.memoryBytes ||
     !Number.isSafeInteger(limits.tmpTmpfsBytes) ||
     limits.tmpTmpfsBytes < 8 * 1024 * 1024 ||
-    limits.tmpTmpfsBytes > limits.memoryBytes
+    limits.tmpTmpfsBytes > limits.memoryBytes ||
+    !/^([1-9][0-9]{0,9}):([1-9][0-9]{0,9})$/.test(user)
   ) {
-    throw new Error('Invalid Docker sandbox resource limits.');
+    throw new Error('Invalid Docker sandbox resource limits or user.');
   }
 
   return [
@@ -55,7 +74,7 @@ export function dockerSecurityArgs(
     '--memory', String(limits.memoryBytes),
     '--memory-swap', String(limits.memoryBytes),
     '--cpus', String(limits.cpus),
-    '--user', '1000:1000',
+    '--user', user,
     '--ulimit', 'nofile=1024:1024',
     '--tmpfs', `/tmp:rw,nosuid,nodev,size=${limits.tmpTmpfsBytes},mode=1777`,
     '--tmpfs',
