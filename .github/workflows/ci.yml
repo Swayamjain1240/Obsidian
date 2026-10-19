@@ -46,6 +46,11 @@ jobs:
       - name: Browser tests
         run: npm run e2e --workspace frontend
 
+      - name: Set up BuildKit builder
+        run: |
+          docker buildx create --name obsidian-phase1 --driver docker-container --use
+          docker buildx inspect --bootstrap
+
       - name: Build isolated worker image
         run: docker buildx build --progress=plain --load --tag obsidian-sandbox:dev infra/sandbox
 
