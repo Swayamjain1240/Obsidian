@@ -248,7 +248,7 @@ git diff --check
 The isolated-worker integration suite is opt-in because it requires Docker Desktop with the Linux engine and the local worker image:
 
 ```bash
-docker build --provenance=true --sbom=true --tag obsidian-sandbox:dev infra/sandbox
+docker buildx build --progress=plain --provenance=true --sbom=true --load --tag obsidian-sandbox:dev infra/sandbox
 npm run verify:worker-image
 OBSIDIAN_DOCKER_TESTS=1 npm run test --workspace backend -- src/workers src/baseline/docker-integration.test.ts src/workflow/change-worker-docker.integration.test.ts
 ```
@@ -309,7 +309,7 @@ The post-baseline workflow is implemented behind authenticated routes under `/ap
 
 The worker policy accepts only reviewed command shapes, keeps commands inside a copied scratch workspace, strips inherited environment variables, disables network-dependent package-manager behavior, and enforces file-count, directory-depth, byte, time, output, CPU, memory, PID, and tmpfs limits. The original extraction is mounted read-only and is fingerprint-checked after execution. Containers carry explicit ownership and lease labels, are removed after every job, and only expired stopped containers are eligible for orphan recovery.
 
-Production deployments must set `BASELINE_REQUIRE_ISOLATION=true` or rely on its production default, configure `BASELINE_WORKER_IMAGE` with a reviewed `@sha256:` digest, and provide `BASELINE_WORKER_BROKER_URL` plus `BASELINE_WORKER_BROKER_TOKEN`. The API talks to the authenticated broker rather than holding Docker-daemon authority when deployed with the broker as a separate service. Readiness checks require both MongoDB and a successful worker preflight. Registry-dependent checks remain unavailable until a separately reviewed network policy is enabled. CI runs install, typecheck, lint, tests, audit, build, Chromium E2E, digest/entrypoint policy checks, Docker Scout scanning when available, Docker worker integration tests, and whitespace checks through `.github/workflows/ci.yml`. The current local Docker Scout scan found zero critical and nineteen high findings in the worker image; the image is not declared vulnerability-free until those high findings receive an approved remediation or exception.
+Production deployments must set `BASELINE_REQUIRE_ISOLATION=true` or rely on its production default, configure `BASELINE_WORKER_IMAGE` with a reviewed `@sha256:` digest, and provide `BASELINE_WORKER_BROKER_URL` plus `BASELINE_WORKER_BROKER_TOKEN`. The API talks to the authenticated broker rather than holding Docker-daemon authority when deployed with the broker as a separate service. Readiness checks require both MongoDB and a successful worker preflight. Registry-dependent checks remain unavailable until a separately reviewed network policy is enabled. CI runs install, typecheck, lint, tests, audit, build, Chromium E2E, digest/entrypoint/npm-runtime policy checks, Docker Scout scanning when available, Docker worker integration tests, and whitespace checks through `.github/workflows/ci.yml`. The current local Docker Scout scan found zero critical and eight high findings in Essential/unpatched Debian base packages; the image is not production-admissible until those findings receive an evidence-based risk decision or the runtime base is replaced.
 
 ## License
 

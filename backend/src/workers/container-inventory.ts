@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 const SMOKE_NAME = /^obsidian-smoke-[0-9a-f-]{36}$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const OWNER = /^[A-Za-z0-9_.:/-]{1,128}$/;
 
 export interface ManagedContainer {
   id: string;
@@ -53,7 +54,7 @@ export async function listManagedSmokeContainers(dockerBinary = 'docker'): Promi
     const [id, name, state, status, jobId, ownerId, leaseText, createdText] = fields;
     const leaseUntil = validNumber(leaseText);
     const createdAt = validNumber(createdText);
-    if (!/^[a-f0-9]{12,64}$/i.test(id) || !SMOKE_NAME.test(name) || !UUID.test(jobId) || !UUID.test(ownerId) || !state || !status || leaseUntil === null || createdAt === null) {
+    if (!/^[a-f0-9]{12,64}$/i.test(id) || !SMOKE_NAME.test(name) || !UUID.test(jobId) || !OWNER.test(ownerId) || !state || !status || leaseUntil === null || createdAt === null) {
       throw new Error('Unexpected managed container metadata.');
     }
     containers.push({ id, name, state, status, jobId, ownerId, leaseUntil, createdAt });

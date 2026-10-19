@@ -47,7 +47,7 @@ jobs:
         run: npm run e2e --workspace frontend
 
       - name: Build isolated worker image
-        run: docker build --provenance=true --sbom=true --tag obsidian-sandbox:dev infra/sandbox
+        run: docker buildx build --progress=plain --provenance=true --sbom=true --load --tag obsidian-sandbox:dev infra/sandbox
 
       - name: Verify worker image policy
         run: npm run verify:worker-image

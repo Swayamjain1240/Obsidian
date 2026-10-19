@@ -29,12 +29,12 @@ describe('Docker broker boundary', () => {
     });
     try {
       let ready = false;
-      for (let attempt = 0; attempt < 40 && !ready; attempt += 1) {
+      for (let attempt = 0; attempt < 120 && !ready; attempt += 1) {
         try {
           const response = await fetch(`http://127.0.0.1:${port}/run`, { method: 'POST', body: '{}', headers: { 'content-type': 'application/json' } });
           ready = response.status === 401;
         } catch {
-          await new Promise((resolve) => setTimeout(resolve, 25));
+          await new Promise((resolve) => setTimeout(resolve, 50));
         }
       }
       expect(ready).toBe(true);

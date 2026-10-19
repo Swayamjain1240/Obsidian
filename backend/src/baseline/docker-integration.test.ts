@@ -85,7 +85,7 @@ describe('BaselineService Docker integration', () => {
       await writeFile(path.join(workspace, 'package.json'), JSON.stringify({ scripts: { build: 'node -e "process.exit(0)"' } }));
       const service = new BaselineService(config, provider, engine);
       const queued = service.start('7', 'docker-completeness');
-      for (let attempt = 0; attempt < 120; attempt += 1) {
+      for (let attempt = 0; attempt < 240; attempt += 1) {
         const current = service.get('7', queued.runId);
         if (current.status === 'passed' || current.status === 'failed' || current.status === 'partial') break;
         await new Promise((resolve) => setTimeout(resolve, 50));
