@@ -15,6 +15,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && chown node:node /workspace
 
+# Keep the bundled npm CLI on a patched release. The worker invokes npm only
+# for the reviewed offline script shapes, so upgrading the CLI preserves the
+# execution contract while removing vulnerable transitive npm packages from
+# the base Node image.
+RUN npm install --global --no-audit --no-fund --ignore-scripts npm@11.21.1
+
 COPY --chown=node:node baseline-runner.mjs /opt/obsidian/baseline-runner.mjs
 
 USER node
