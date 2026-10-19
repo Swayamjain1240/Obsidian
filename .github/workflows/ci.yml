@@ -2,7 +2,7 @@ name: Obsidian CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/production-stabilization]
   pull_request:
 
 permissions:
