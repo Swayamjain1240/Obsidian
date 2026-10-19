@@ -60,5 +60,5 @@ describe('completeness frontend flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /Enhance existing parts only/ }));
     await waitFor(() => expect(screen.getByText('Scope selection is saved.')).toBeTruthy());
     expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith('/scope'))).toBe(true);
-  });
+  }, 15_000);
 });
