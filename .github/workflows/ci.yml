@@ -47,7 +47,10 @@ jobs:
         run: npm run e2e --workspace frontend
 
       - name: Build isolated worker image
-        run: docker buildx build --progress=plain --provenance=true --sbom=true --load --tag obsidian-sandbox:dev infra/sandbox
+        run: docker buildx build --progress=plain --load --tag obsidian-sandbox:dev infra/sandbox
+
+      - name: Generate worker provenance and SBOM attestations
+        run: docker buildx build --progress=plain --provenance=true --sbom=true --output=type=oci,dest=/tmp/obsidian-sandbox.oci.tar infra/sandbox
 
       - name: Verify worker image policy
         run: npm run verify:worker-image
