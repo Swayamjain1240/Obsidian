@@ -15,4 +15,3 @@ export interface RepositoryCommandExecutor {
     options: BaselineCommandRunnerOptions,
   ): Promise<BaselineCommandResult>;
 }
-  
