@@ -38,7 +38,7 @@ npm run e2e --workspace frontend
 docker buildx build --progress=plain --load --tag obsidian-sandbox:dev infra/sandbox
 docker buildx build --progress=plain --provenance=true --sbom=true --output=type=oci,dest=obsidian-sandbox.oci.tar infra/sandbox
 npm run verify:worker-image
-OBSIDIAN_DOCKER_TESTS=1 npm run test --workspace backend -- src/workers src/baseline/docker-integration.test.ts src/workflow/change-worker-docker.integration.test.ts
+OBSIDIAN_DOCKER_TESTS=1 npm run test --workspace backend -- --maxWorkers=1 src/workers src/baseline/docker-integration.test.ts src/workflow/change-worker-docker.integration.test.ts
 docker scout cves --only-severity critical,high local://obsidian-sandbox:dev
 docker scout cves --exit-code --only-severity critical local://obsidian-sandbox:dev
 git diff --check

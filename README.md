@@ -251,7 +251,7 @@ The isolated-worker integration suite is opt-in because it requires Docker Deskt
 docker buildx build --progress=plain --load --tag obsidian-sandbox:dev infra/sandbox
 docker buildx build --progress=plain --provenance=true --sbom=true --output=type=oci,dest=obsidian-sandbox.oci.tar infra/sandbox
 npm run verify:worker-image
-OBSIDIAN_DOCKER_TESTS=1 npm run test --workspace backend -- src/workers src/baseline/docker-integration.test.ts src/workflow/change-worker-docker.integration.test.ts
+OBSIDIAN_DOCKER_TESTS=1 npm run test --workspace backend -- --maxWorkers=1 src/workers src/baseline/docker-integration.test.ts src/workflow/change-worker-docker.integration.test.ts
 ```
 
 For production, run `npm run worker-broker --workspace backend` as a separately permissioned service with access to the Docker daemon, then configure `BASELINE_WORKER_BROKER_URL` and a 32-character-or-longer `BASELINE_WORKER_BROKER_TOKEN` in the API. Development and tests may use the local broker subprocess fallback.

@@ -72,7 +72,7 @@ jobs:
       - name: Docker worker integration tests
         env:
           OBSIDIAN_DOCKER_TESTS: '1'
-        run: npm run test --workspace backend -- src/workers src/baseline/docker-integration.test.ts src/workflow/change-worker-docker.integration.test.ts
+        run: npm run test --workspace backend -- --maxWorkers=1 src/workers src/baseline/docker-integration.test.ts src/workflow/change-worker-docker.integration.test.ts
 
       - name: Check diff whitespace
         run: git diff --check
