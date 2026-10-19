@@ -59,7 +59,8 @@ describe('ChangeWorker Docker validation', () => {
         languageCandidates: ['TypeScript'],
       }, applied);
       expect(validation.status).toBe('not_available');
-      expect(validation.checks.find((check) => check.id === 'node-build')?.status).toBe('passed');
+      const nodeBuild = validation.checks.find((check) => check.id === 'node-build');
+      expect(nodeBuild, JSON.stringify(validation)).toMatchObject({ status: 'passed' });
     } finally {
       await rm(temporaryRoot, { recursive: true, force: true });
     }
