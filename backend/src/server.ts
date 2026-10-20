@@ -6,7 +6,12 @@ import { shutdownDockerBrokers, type DockerBrokerExecutor } from './workers/dock
 const config = loadConfig();
 const app = createApp(config);
 
-void connectDatabase(config.MONGODB_URI)
+void connectDatabase(config.MONGODB_URI, {
+  serverSelectionTimeoutMS: config.MONGODB_SERVER_SELECTION_TIMEOUT_MS,
+  connectTimeoutMS: config.MONGODB_CONNECT_TIMEOUT_MS,
+  socketTimeoutMS: config.MONGODB_SOCKET_TIMEOUT_MS,
+  heartbeatFrequencyMS: config.MONGODB_HEARTBEAT_FREQUENCY_MS,
+})
   .then(async () => {
     const worker = app.locals.workerExecutor as DockerBrokerExecutor | undefined;
     if (worker) await worker.recoverExpiredLeases();

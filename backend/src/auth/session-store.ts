@@ -10,10 +10,17 @@ export interface GithubSession {
   expiresAt: number;
 }
 
+export class SessionPersistenceError extends Error {
+  public constructor(message = 'Authentication session could not be durably persisted.') {
+    super(message);
+    this.name = 'SessionPersistenceError';
+  }
+}
+
 export class SessionStore {
   private readonly sessions = new Map<string, GithubSession>();
 
-  constructor(private readonly secret: string, private readonly ttlMs = 8 * 60 * 60 * 1000, private readonly maxSessions = 10_000) {}
+  constructor(private readonly secret: string, private readonly ttlMs = 8 * 60 * 60 * 1000, private readonly maxSessions = 10_000, private readonly requirePersistence = false) {}
 
   create(input: Omit<GithubSession, 'sessionId' | 'expiresAt'>): string {
     for (const [key, session] of this.sessions) if (session.expiresAt <= Date.now()) this.sessions.delete(key);
@@ -32,7 +39,10 @@ export class SessionStore {
     const sessionId = this.verify(signed);
     const session = sessionId ? this.sessions.get(sessionId) : null;
     if (!session) return signed;
-    if (getDatabaseStatus() !== 'connected') return signed;
+    if (getDatabaseStatus() !== 'connected') {
+      if (this.requirePersistence) throw new SessionPersistenceError();
+      return signed;
+    }
     try {
       const encrypted = this.encrypt(session.accessToken);
       await AuthSessionModel.updateOne(
@@ -40,9 +50,8 @@ export class SessionStore {
         { $set: { sessionId: session.sessionId, githubUserId: session.githubUserId, githubLogin: session.githubLogin, ...encrypted, expiresAt: new Date(session.expiresAt) } },
         { upsert: true },
       ).exec();
-    } catch {
-      // The in-memory record remains usable for local development; readiness and
-      // the durable workflow health boundary surface database unavailability.
+    } catch (reason: unknown) {
+      if (this.requirePersistence) throw new SessionPersistenceError(reason instanceof Error ? reason.message : undefined);
     }
     return signed;
   }

@@ -40,6 +40,7 @@ import { mergeManifestOperations } from './manifest-builder.js';
 import { buildRecommendationCatalog } from './recommendation-catalog.js';
 import { pageRecommendations } from './recommendation-page.js';
 import { ApprovalLedger } from './approval-ledger.js';
+import { getDatabaseStatus } from '../db/connection.js';
 import { deliveryBranchName, deliveryCommitMessage, gitBlobSha, responseHash } from './delivery-service.js';
 import { deliveryReceiptFor, deliveryIdentityMatches, markDeliveryRecovery, upsertDeliveryReceipt, type DeliveryIdentity } from './delivery-reconciler.js';
 
@@ -798,6 +799,21 @@ export class WorkflowService {
     };
     const candidate = deliveryReceiptFor(upsertDeliveryReceipt(state.deliveryReceipts, identity, step, status, fields), step)!;
     const recordId = `${state.version2RunId}:${step}`;
+    if (getDatabaseStatus() === 'connected') {
+      const nextState: Version2State = {
+        ...state,
+        deliveryReceipts: [...(state.deliveryReceipts ?? []).filter((receipt) => receipt.step !== step), candidate],
+        revision: nextRevision(state),
+      };
+      const saved = await this.store.saveVersionedPair(
+        ownerUserId,
+        { kind: 'version_2_run', id: state.version2RunId, value: nextState },
+        { kind: 'delivery_step', id: recordId, value: candidate },
+      );
+      Object.assign(state, saved.primary);
+      await this.saveAggregate(ownerUserId, state.sessionId ?? state.enhancementRunId, { sessionId: state.sessionId, snapshotId: state.snapshotId, version2RunId: state.version2RunId, enhancementRunId: state.enhancementRunId, manifestId: state.manifest?.manifestId ?? null, baseCommit: state.manifest?.baseCommit });
+      return saved.secondary;
+    }
     const existing = await this.store.get<DeliveryStepReceipt>(ownerUserId, 'delivery_step', recordId);
     const persisted = await this.store.saveVersioned(ownerUserId, 'delivery_step', recordId, candidate, existing ? currentRevision(existing) : undefined);
     state.deliveryReceipts = [...(state.deliveryReceipts ?? []).filter((receipt) => receipt.step !== step), persisted];

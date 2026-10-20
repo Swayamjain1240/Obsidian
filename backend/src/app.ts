@@ -18,12 +18,12 @@ import { createCompletenessRouter } from './completeness/router.js';
 import { CompletenessService } from './completeness/service.js';
 import { createBaselineRouter } from './baseline/router.js';
 import { BaselineService } from './baseline/service.js';
-import { createDurableEventSink } from './events.js';
+import { createRequiredDurableEventSink } from './events.js';
 import { createWorkflowRouter } from './workflow/router.js';
 import { WorkflowService } from './workflow/service.js';
 import { DurableWorkflowStore } from './workflow/store.js';
 import { DurableRunStore } from './workflow/run-store.js';
-import { getDatabaseStatus } from './db/connection.js';
+import { getDatabaseRuntimeStatus } from './db/runtime.js';
 import { securityMiddleware } from './security.js';
 import { checkDockerSandbox } from './workers/docker-preflight.js';
 import { DockerBrokerExecutor } from './workers/docker-broker.js';
@@ -85,14 +85,22 @@ export function createApp(config: AppConfig, dependencies: {
   });
 
   app.get('/health/ready', async (_request: Request, response: Response) => {
-    const mongodb = getDatabaseStatus();
+    const runtime = await getDatabaseRuntimeStatus();
+    const mongodb = runtime.status;
     const worker = mongodb === 'connected'
       ? await checkDockerSandbox(config.BASELINE_WORKER_IMAGE, 'docker', workerExecutor)
       : { available: false, summary: 'Worker preflight is waiting for MongoDB readiness.' };
     const ready = mongodb === 'connected' && worker.available;
     response.status(ready ? 200 : 503).json({
       status: ready ? 'ready' : 'not_ready',
-      checks: { mongodb, workerSandbox: worker.available ? 'available' : 'not_available' },
+      checks: {
+        mongodb,
+        workerSandbox: worker.available ? 'available' : 'not_available',
+        topology: runtime.topology,
+        transactions: runtime.transactionsSupported ? 'available' : 'not_available',
+        pingMs: runtime.pingMs,
+        generation: runtime.generation,
+      },
       requestId: response.locals.requestId,
     });
   });
@@ -104,10 +112,10 @@ export function createApp(config: AppConfig, dependencies: {
     });
   });
 
-  const sessionStore = dependencies.sessionStore ?? (config.AUTH_SESSION_SECRET ? new SessionStore(config.AUTH_SESSION_SECRET) : undefined);
+  const sessionStore = dependencies.sessionStore ?? (config.AUTH_SESSION_SECRET ? new SessionStore(config.AUTH_SESSION_SECRET, undefined, undefined, config.NODE_ENV !== 'test') : undefined);
   app.use('/auth', createAuthRouter(config, undefined, sessionStore));
   if (sessionStore) {
-    const eventSink = dependencies.detectionEventSink ?? createDurableEventSink();
+    const eventSink = dependencies.detectionEventSink ?? createRequiredDurableEventSink();
     const runStore = new DurableRunStore(config.NODE_ENV !== 'test');
     const workflowStore = new DurableWorkflowStore(config.NODE_ENV !== 'test');
     const handleStore = dependencies.handleStore ?? new SnapshotHandleStore(60 * 60 * 1000, 10_000, workflowStore);

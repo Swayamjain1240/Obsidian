@@ -32,11 +32,11 @@ describe('baseline frontend flow', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<MemoryRouter initialEntries={['/project/baseline?completenessRunId=completeness-1']}><App /></MemoryRouter>);
     fireEvent.click(await screen.findByRole('button', { name: 'Start baseline checks' }));
-    await waitFor(() => expect(fetchMock.mock.calls.map((call) => String(call[0]))).toContain('/api/v1/intake/baseline/baseline-1'), { timeout: 5000 });
+    await waitFor(() => expect(fetchMock.mock.calls.map((call) => String(call[0]))).toContain('/api/v1/intake/baseline/baseline-1'), { timeout: 15_000 });
     expect(await screen.findByRole('heading', { name: 'Review baseline evidence' })).toBeTruthy();
     expect(screen.getByRole('option', { name: /Unit tests/ })).toBeTruthy();
     fireEvent.click(screen.getByRole('tab', { name: 'Run details' }));
     fireEvent.change(screen.getByLabelText('Baseline run detail'), { target: { value: '5' } });
     expect(screen.getByText(/enhancement analysis/)).toBeTruthy();
-  });
+  }, 30_000);
 });

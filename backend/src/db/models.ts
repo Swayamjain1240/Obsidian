@@ -11,6 +11,7 @@ const projectSchema = new Schema(
   },
   { timestamps },
 );
+projectSchema.index({ githubOwner: 1, repository: 1 }, { unique: true });
 
 const repositorySnapshotSchema = new Schema(
   {
@@ -22,6 +23,7 @@ const repositorySnapshotSchema = new Schema(
   },
   { timestamps: false },
 );
+repositorySnapshotSchema.index({ projectId: 1, commitSha: 1 }, { unique: true });
 
 const sessionSchema = new Schema(
   {
@@ -30,6 +32,7 @@ const sessionSchema = new Schema(
   },
   { timestamps },
 );
+sessionSchema.index({ projectId: 1, status: 1, updatedAt: -1 });
 
 const authSessionSchema = new Schema(
   {
@@ -59,11 +62,16 @@ const durableRunStateSchema = new Schema(
     ownerUserId: { type: String, required: true, index: true, immutable: true },
     runId: { type: String, required: true, index: true, immutable: true },
     phase: { type: String, required: true, immutable: true },
+    schemaVersion: { type: Number, required: true, default: 2, min: 1 },
+    revision: { type: Number, required: true, default: 1, min: 1 },
+    lifecycleState: { type: String, default: null },
+    recovery: { type: String, default: null },
     payload: { type: Schema.Types.Mixed, required: true },
   },
   { timestamps: true },
 );
 durableRunStateSchema.index({ ownerUserId: 1, runId: 1 }, { unique: true });
+durableRunStateSchema.index({ ownerUserId: 1, phase: 1, updatedAt: -1 });
 
 const systemEventSchema = new Schema(
   {
@@ -82,6 +90,8 @@ const systemEventSchema = new Schema(
   },
   { timestamps: false },
 );
+systemEventSchema.index({ sessionId: 1, timestamp: 1 });
+systemEventSchema.index({ projectId: 1, runId: 1, timestamp: 1 });
 
 export const ProjectModel = mongoose.models.Project ?? mongoose.model('Project', projectSchema);
 export const RepositorySnapshotModel =
@@ -97,12 +107,15 @@ const workflowStateSchema = new Schema(
     ownerUserId: { type: String, required: true, index: true, immutable: true },
     kind: { type: String, required: true, index: true, immutable: true },
     stateId: { type: String, required: true, index: true, immutable: true },
+    schemaVersion: { type: Number, required: true, default: 2, min: 1 },
     revision: { type: Number, required: true, default: 1, min: 1 },
     payload: { type: Schema.Types.Mixed, required: true },
   },
   { timestamps: true },
 );
 workflowStateSchema.index({ ownerUserId: 1, kind: 1, stateId: 1 }, { unique: true });
+workflowStateSchema.index({ ownerUserId: 1, kind: 1, revision: 1 });
+workflowStateSchema.index({ ownerUserId: 1, updatedAt: -1 });
 
 export const WorkflowStateModel = mongoose.models.WorkflowState ?? mongoose.model('WorkflowState', workflowStateSchema);
 
@@ -111,6 +124,7 @@ const workerLeaseSchema = new Schema(
     jobId: { type: String, required: true, unique: true, immutable: true },
     ownerId: { type: String, required: true, index: true },
     leaseTokenHash: { type: String, required: true },
+    fence: { type: Number, required: true, default: 1, min: 1 },
     containerName: { type: String, required: true, immutable: true },
     state: { type: String, enum: ['claimed', 'running', 'completed', 'failed', 'cancelled', 'recovery', 'recovered', 'recovery_failed'], required: true, index: true },
     leaseExpiresAt: { type: Date, required: true, index: true },
@@ -120,5 +134,6 @@ const workerLeaseSchema = new Schema(
   { timestamps: true },
 );
 workerLeaseSchema.index({ state: 1, leaseExpiresAt: 1 });
+workerLeaseSchema.index({ ownerId: 1, state: 1, leaseExpiresAt: 1 });
 
 export const WorkerLeaseModel = mongoose.models.WorkerLease ?? mongoose.model('WorkerLease', workerLeaseSchema);

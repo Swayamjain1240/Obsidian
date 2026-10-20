@@ -29,4 +29,16 @@ describe('durable worker lease semantics', () => {
     expect(await store.markRecovered('expired', 'recovery-owner', 'recovered', 2_200)).toBe(false);
     expect(store.get('active')?.state).toBe('running');
   });
+
+  it('fences an old worker after recovery takeover', async () => {
+    const store = new InMemoryWorkerLeaseStore();
+    const job = 'fenced-job';
+    await store.claim({ jobId: job, ownerId: 'owner-a', leaseToken: 'token-a', containerName: 'obsidian-smoke-00000000-0000-4000-8000-000000000005', leaseExpiresAt: 1_000, now: 0 });
+    const oldLease = store.get(job);
+    expect(oldLease?.fence).toBe(1);
+    const recovered = await store.claimExpired('recovery-owner', 2_000, 5_000);
+    expect(recovered[0]?.fence).toBe(2);
+    expect(await store.finish(job, 'owner-a', 'token-a', 'completed', 2_100, undefined, 1)).toBe(false);
+    expect(await store.markRecovered(job, 'recovery-owner', 'recovered', 2_200, undefined, 2)).toBe(true);
+  });
 });

@@ -6,7 +6,7 @@ import { getGithubOAuthConfig } from './oauth-config.js';
 import { createGithubAuthorizationUrl } from './oauth-url.js';
 import { OAuthStateStore } from './oauth-state.js';
 import { GithubApiClient } from '../github/client.js';
-import { SessionStore } from './session-store.js';
+import { SessionPersistenceError, SessionStore } from './session-store.js';
 import { getCookie } from './session-middleware.js';
 import { requireSameOrigin } from '../security.js';
 
@@ -74,7 +74,11 @@ export function createAuthRouter(
         `obsidian_oauth_binding=; Max-Age=0; Path=/auth/github; HttpOnly; SameSite=Lax${secure}`,
       );
       response.redirect(`${config.FRONTEND_ORIGIN}/home`);
-    } catch {
+    } catch (reason: unknown) {
+      if (reason instanceof SessionPersistenceError) {
+        response.status(503).json(errorBody('INTERNAL_ERROR', 'Authentication session could not be durably recorded.', response.locals.requestId as string));
+        return;
+      }
       response.status(400).json(
         errorBody('AUTH_CALLBACK_FAILED', 'GitHub sign-in could not be completed.', response.locals.requestId as string),
       );

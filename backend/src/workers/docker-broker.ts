@@ -171,12 +171,15 @@ export class DockerBrokerExecutor implements RepositoryCommandExecutor {
     const leaseExpiresAt = options.workerLeaseExpiresAt ?? now + this.leaseDurationMs;
     const claimed = await this.leaseStore.claim({ jobId, ownerId: this.ownerId, leaseToken, containerName: `obsidian-smoke-${jobId}`, leaseExpiresAt, now });
     if (!claimed) return unavailable('Durable worker ownership could not be claimed.');
+    const lease = await this.leaseStore.get(jobId);
+    if (!lease) return unavailable('Durable worker lease could not be read after claim.');
+    const fence = lease.fence;
 
     const controller = new AbortController();
     const signal = AbortSignal.any([options.signal, controller.signal]);
     let heartbeatFailed = false;
     const heartbeat = setInterval(() => {
-      void this.leaseStore.renew(jobId, this.ownerId, leaseToken, Date.now() + this.leaseDurationMs, Date.now()).then((ok) => {
+      void this.leaseStore.renew(jobId, this.ownerId, leaseToken, Date.now() + this.leaseDurationMs, Date.now(), fence).then((ok) => {
         if (!ok) { heartbeatFailed = true; controller.abort(new Error('Worker lease renewal failed.')); }
       });
     }, Math.max(1_000, Math.floor(this.leaseDurationMs / 3)));
@@ -206,7 +209,7 @@ export class DockerBrokerExecutor implements RepositoryCommandExecutor {
           ? { ...unavailable('Docker worker execution was cancelled.'), status: 'cancelled' as const }
           : { ...result, durationMs: Date.now() - startedAt };
       const state = finalResult.status === 'cancelled' ? 'cancelled' : finalResult.status === 'passed' ? 'completed' : 'failed';
-      const finished = await this.leaseStore.finish(jobId, this.ownerId, leaseToken, state, Date.now(), finalResult.status === 'passed' ? undefined : finalResult.status);
+      const finished = await this.leaseStore.finish(jobId, this.ownerId, leaseToken, state, Date.now(), finalResult.status === 'passed' ? undefined : finalResult.status, fence);
       return finished ? finalResult : unavailable('Durable worker completion could not be recorded.');
     } finally {
       clearInterval(heartbeat);
@@ -222,9 +225,9 @@ export class DockerBrokerExecutor implements RepositoryCommandExecutor {
     let recovered = 0; let active = 0; let failed = 0;
     for (const lease of leases) {
       const status = statuses[lease.jobId];
-      if (status === 'recovered' || status === 'not_found') { recovered += 1; await this.leaseStore.markRecovered(lease.jobId, recoveryOwnerId, 'recovered', Date.now()); }
-      else if (status === 'active') { active += 1; failed += 1; await this.leaseStore.markRecovered(lease.jobId, recoveryOwnerId, 'recovery_failed', Date.now(), 'active-container'); }
-      else { failed += 1; await this.leaseStore.markRecovered(lease.jobId, recoveryOwnerId, 'recovery_failed', Date.now(), 'cleanup-unverified'); }
+      if (status === 'recovered' || status === 'not_found') { recovered += 1; await this.leaseStore.markRecovered(lease.jobId, recoveryOwnerId, 'recovered', Date.now(), undefined, lease.fence); }
+      else if (status === 'active') { active += 1; failed += 1; await this.leaseStore.markRecovered(lease.jobId, recoveryOwnerId, 'recovery_failed', Date.now(), 'active-container', lease.fence); }
+      else { failed += 1; await this.leaseStore.markRecovered(lease.jobId, recoveryOwnerId, 'recovery_failed', Date.now(), 'cleanup-unverified', lease.fence); }
     }
     return { recovered, active, failed };
   }

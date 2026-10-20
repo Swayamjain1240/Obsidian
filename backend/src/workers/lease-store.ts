@@ -9,6 +9,7 @@ export interface WorkerLease {
   jobId: string;
   ownerId: string;
   leaseTokenHash: string;
+  fence: number;
   containerName: string;
   state: WorkerLeaseState;
   leaseExpiresAt: number;
@@ -29,10 +30,11 @@ export interface WorkerLeaseClaim {
 
 export interface WorkerLeaseStore {
   claim(input: WorkerLeaseClaim): Promise<boolean>;
-  renew(jobId: string, ownerId: string, leaseToken: string, leaseExpiresAt: number, now: number): Promise<boolean>;
-  finish(jobId: string, ownerId: string, leaseToken: string, state: Extract<WorkerLeaseState, 'completed' | 'failed' | 'cancelled'>, now: number, errorCode?: string): Promise<boolean>;
+  get(jobId: string): WorkerLease | null | Promise<WorkerLease | null>;
+  renew(jobId: string, ownerId: string, leaseToken: string, leaseExpiresAt: number, now: number, fence?: number): Promise<boolean>;
+  finish(jobId: string, ownerId: string, leaseToken: string, state: Extract<WorkerLeaseState, 'completed' | 'failed' | 'cancelled'>, now: number, errorCode?: string, fence?: number): Promise<boolean>;
   claimExpired(recoveryOwnerId: string, now: number, recoveryLeaseExpiresAt: number, limit?: number): Promise<WorkerLease[]>;
-  markRecovered(jobId: string, recoveryOwnerId: string, state: 'recovered' | 'recovery_failed', now: number, errorCode?: string): Promise<boolean>;
+  markRecovered(jobId: string, recoveryOwnerId: string, state: 'recovered' | 'recovery_failed', now: number, errorCode?: string, fence?: number): Promise<boolean>;
 }
 
 export function hashLeaseToken(token: string): string {
@@ -44,6 +46,7 @@ function fromRecord(value: Record<string, unknown>): WorkerLease {
     jobId: String(value.jobId),
     ownerId: String(value.ownerId),
     leaseTokenHash: String(value.leaseTokenHash),
+    fence: Number(value.fence ?? 1),
     containerName: String(value.containerName),
     state: value.state as WorkerLeaseState,
     leaseExpiresAt: new Date(value.leaseExpiresAt as string | Date).getTime(),
@@ -63,6 +66,7 @@ export class MongoWorkerLeaseStore implements WorkerLeaseStore {
         jobId: input.jobId,
         ownerId: input.ownerId,
         leaseTokenHash: tokenHash,
+        fence: 1,
         containerName: input.containerName,
         state: 'running',
         leaseExpiresAt: new Date(input.leaseExpiresAt),
@@ -75,19 +79,29 @@ export class MongoWorkerLeaseStore implements WorkerLeaseStore {
     }
   }
 
-  public async renew(jobId: string, ownerId: string, leaseToken: string, leaseExpiresAt: number, now: number): Promise<boolean> {
+  public async get(jobId: string): Promise<WorkerLease | null> {
+    if (getDatabaseStatus() !== 'connected') return null;
+    const record = await WorkerLeaseModel.findOne({ jobId }).lean().exec().catch(() => null);
+    return record ? fromRecord(record as unknown as Record<string, unknown>) : null;
+  }
+
+  public async renew(jobId: string, ownerId: string, leaseToken: string, leaseExpiresAt: number, now: number, fence?: number): Promise<boolean> {
     if (getDatabaseStatus() !== 'connected') return false;
+    const filter: Record<string, unknown> = { jobId, ownerId, leaseTokenHash: hashLeaseToken(leaseToken), state: 'running', leaseExpiresAt: { $gt: new Date(now) } };
+    if (fence !== undefined) filter.fence = fence;
     const updated = await WorkerLeaseModel.updateOne(
-      { jobId, ownerId, leaseTokenHash: hashLeaseToken(leaseToken), state: 'running', leaseExpiresAt: { $gt: new Date(now) } },
+      filter,
       { $set: { leaseExpiresAt: new Date(leaseExpiresAt), heartbeatAt: new Date(now) } },
     ).exec().catch(() => null);
     return Boolean(updated && updated.modifiedCount === 1);
   }
 
-  public async finish(jobId: string, ownerId: string, leaseToken: string, state: Extract<WorkerLeaseState, 'completed' | 'failed' | 'cancelled'>, now: number, errorCode?: string): Promise<boolean> {
+  public async finish(jobId: string, ownerId: string, leaseToken: string, state: Extract<WorkerLeaseState, 'completed' | 'failed' | 'cancelled'>, now: number, errorCode?: string, fence?: number): Promise<boolean> {
     if (getDatabaseStatus() !== 'connected') return false;
+    const filter: Record<string, unknown> = { jobId, ownerId, leaseTokenHash: hashLeaseToken(leaseToken), state: 'running' };
+    if (fence !== undefined) filter.fence = fence;
     const updated = await WorkerLeaseModel.updateOne(
-      { jobId, ownerId, leaseTokenHash: hashLeaseToken(leaseToken), state: 'running' },
+      filter,
       { $set: { state, heartbeatAt: new Date(now), leaseExpiresAt: new Date(now), lastErrorCode: errorCode ?? null } },
     ).exec().catch(() => null);
     return Boolean(updated && updated.modifiedCount === 1);
@@ -99,7 +113,7 @@ export class MongoWorkerLeaseStore implements WorkerLeaseStore {
     for (let index = 0; index < limit; index += 1) {
       const record = await WorkerLeaseModel.findOneAndUpdate(
         { state: { $in: ['claimed', 'running'] }, leaseExpiresAt: { $lte: new Date(now) } },
-        { $set: { state: 'recovery', ownerId: recoveryOwnerId, leaseExpiresAt: new Date(recoveryLeaseExpiresAt), heartbeatAt: new Date(now) } },
+        { $set: { state: 'recovery', ownerId: recoveryOwnerId, leaseExpiresAt: new Date(recoveryLeaseExpiresAt), heartbeatAt: new Date(now) }, $inc: { fence: 1 } },
         { sort: { leaseExpiresAt: 1 }, new: true, lean: true },
       ).exec().catch(() => null);
       if (!record) break;
@@ -108,10 +122,12 @@ export class MongoWorkerLeaseStore implements WorkerLeaseStore {
     return records;
   }
 
-  public async markRecovered(jobId: string, recoveryOwnerId: string, state: 'recovered' | 'recovery_failed', now: number, errorCode?: string): Promise<boolean> {
+  public async markRecovered(jobId: string, recoveryOwnerId: string, state: 'recovered' | 'recovery_failed', now: number, errorCode?: string, fence?: number): Promise<boolean> {
     if (getDatabaseStatus() !== 'connected') return false;
+    const filter: Record<string, unknown> = { jobId, ownerId: recoveryOwnerId, state: 'recovery' };
+    if (fence !== undefined) filter.fence = fence;
     const updated = await WorkerLeaseModel.updateOne(
-      { jobId, ownerId: recoveryOwnerId, state: 'recovery' },
+      filter,
       { $set: { state, heartbeatAt: new Date(now), leaseExpiresAt: new Date(now), lastErrorCode: errorCode ?? null } },
     ).exec().catch(() => null);
     return Boolean(updated && updated.modifiedCount === 1);
@@ -127,6 +143,7 @@ export class InMemoryWorkerLeaseStore implements WorkerLeaseStore {
       jobId: input.jobId,
       ownerId: input.ownerId,
       leaseTokenHash: hashLeaseToken(input.leaseToken),
+      fence: 1,
       containerName: input.containerName,
       state: 'running',
       leaseExpiresAt: input.leaseExpiresAt,
@@ -138,18 +155,18 @@ export class InMemoryWorkerLeaseStore implements WorkerLeaseStore {
     return true;
   }
 
-  public async renew(jobId: string, ownerId: string, leaseToken: string, leaseExpiresAt: number, now: number): Promise<boolean> {
+  public async renew(jobId: string, ownerId: string, leaseToken: string, leaseExpiresAt: number, now: number, fence?: number): Promise<boolean> {
     const lease = this.leases.get(jobId);
-    if (!lease || lease.ownerId !== ownerId || lease.leaseTokenHash !== hashLeaseToken(leaseToken) || lease.state !== 'running' || lease.leaseExpiresAt <= now) return false;
+    if (!lease || lease.ownerId !== ownerId || lease.leaseTokenHash !== hashLeaseToken(leaseToken) || lease.state !== 'running' || lease.leaseExpiresAt <= now || (fence !== undefined && lease.fence !== fence)) return false;
     lease.leaseExpiresAt = leaseExpiresAt;
     lease.heartbeatAt = now;
     lease.updatedAt = now;
     return true;
   }
 
-  public async finish(jobId: string, ownerId: string, leaseToken: string, state: Extract<WorkerLeaseState, 'completed' | 'failed' | 'cancelled'>, now: number, errorCode?: string): Promise<boolean> {
+  public async finish(jobId: string, ownerId: string, leaseToken: string, state: Extract<WorkerLeaseState, 'completed' | 'failed' | 'cancelled'>, now: number, errorCode?: string, fence?: number): Promise<boolean> {
     const lease = this.leases.get(jobId);
-    if (!lease || lease.ownerId !== ownerId || lease.leaseTokenHash !== hashLeaseToken(leaseToken) || lease.state !== 'running') return false;
+    if (!lease || lease.ownerId !== ownerId || lease.leaseTokenHash !== hashLeaseToken(leaseToken) || lease.state !== 'running' || (fence !== undefined && lease.fence !== fence)) return false;
     lease.state = state;
     lease.leaseExpiresAt = now;
     lease.heartbeatAt = now;
@@ -163,6 +180,7 @@ export class InMemoryWorkerLeaseStore implements WorkerLeaseStore {
     for (const lease of records) {
       lease.state = 'recovery';
       lease.ownerId = recoveryOwnerId;
+      lease.fence += 1;
       lease.leaseExpiresAt = recoveryLeaseExpiresAt;
       lease.heartbeatAt = now;
       lease.updatedAt = now;
@@ -170,9 +188,9 @@ export class InMemoryWorkerLeaseStore implements WorkerLeaseStore {
     return records.map((lease) => ({ ...lease }));
   }
 
-  public async markRecovered(jobId: string, recoveryOwnerId: string, state: 'recovered' | 'recovery_failed', now: number, errorCode?: string): Promise<boolean> {
+  public async markRecovered(jobId: string, recoveryOwnerId: string, state: 'recovered' | 'recovery_failed', now: number, errorCode?: string, fence?: number): Promise<boolean> {
     const lease = this.leases.get(jobId);
-    if (!lease || lease.ownerId !== recoveryOwnerId || lease.state !== 'recovery') return false;
+    if (!lease || lease.ownerId !== recoveryOwnerId || lease.state !== 'recovery' || (fence !== undefined && lease.fence !== fence)) return false;
     lease.state = state;
     lease.leaseExpiresAt = now;
     lease.heartbeatAt = now;

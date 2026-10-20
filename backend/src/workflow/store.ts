@@ -1,5 +1,7 @@
 import { WorkflowStateModel } from '../db/models.js';
-import { getDatabaseStatus } from '../db/connection.js';
+import { getDatabaseGeneration, getDatabaseStatus } from '../db/connection.js';
+import { isDuplicateKeyError, DatabaseRevisionConflictError, revisionOf } from '../db/cas.js';
+import { withMongoTransaction } from '../db/transactions.js';
 
 function cloneValue<T>(value: T): T {
   return structuredClone(value);
@@ -8,6 +10,7 @@ function cloneValue<T>(value: T): T {
 export type WorkflowStateKind = 'workflow_aggregate' | 'repair_plan' | 'enhancement_run' | 'version_2_run' | 'validation' | 'pull_request' | 'repair_checkpoint' | 'approval_receipt' | 'recommendation_review' | 'idempotency' | 'diff' | 'repository_selection' | 'snapshot_handle' | 'delivery_step';
 
 export interface VersionedWorkflowValue {
+  schemaVersion?: number;
   revision?: number;
   updatedAt?: string;
 }
@@ -43,6 +46,7 @@ export interface WorkflowStore {
 export class DurableWorkflowStore implements WorkflowStore {
   private readonly cache = new Map<string, unknown>();
   private readonly persistenceErrors: Error[] = [];
+  private cacheGeneration = getDatabaseGeneration();
 
   public constructor(private readonly requirePersistence = false) {}
 
@@ -61,8 +65,8 @@ export class DurableWorkflowStore implements WorkflowStore {
     try {
       await WorkflowStateModel.updateOne(
         { ownerUserId, kind, stateId: id },
-        { $set: { ownerUserId, kind, stateId: id, payload: value, updatedAt: new Date() } },
-        { upsert: true },
+        { $set: { ownerUserId, kind, stateId: id, schemaVersion: 2, payload: value, updatedAt: new Date() } },
+        { upsert: true, writeConcern: { w: 'majority', j: true } },
       ).exec();
       this.cache.set(key, cloned);
     } catch (reason: unknown) {
@@ -79,9 +83,9 @@ export class DurableWorkflowStore implements WorkflowStore {
   public async saveVersioned<T extends VersionedWorkflowValue>(ownerUserId: string, kind: WorkflowStateKind, id: string, value: T, expectedRevision?: number): Promise<T> {
     this.assertWritable();
     const current = await this.get<T>(ownerUserId, kind, id);
-    const actualRevision = Number.isSafeInteger(current?.revision) ? current!.revision! : 0;
+    const actualRevision = revisionOf(current);
     if (expectedRevision !== undefined && expectedRevision !== actualRevision) throw new WorkflowRevisionConflictError(expectedRevision, actualRevision);
-    const next = { ...value, revision: actualRevision + 1, updatedAt: new Date().toISOString() } as T;
+    const next = { ...value, schemaVersion: 2, revision: actualRevision + 1, updatedAt: new Date().toISOString() } as T;
     const key = `${ownerUserId}:${kind}:${id}`;
     if (getDatabaseStatus() !== 'connected') {
       const latest = this.cache.get(key) as T | undefined;
@@ -96,28 +100,62 @@ export class DurableWorkflowStore implements WorkflowStore {
       if (current) filter.revision = actualRevision;
       const updated = await WorkflowStateModel.findOneAndUpdate(
         filter,
-        { $set: { ownerUserId, kind, stateId: id, revision: next.revision, payload: next, updatedAt: new Date() } },
-        { upsert: !current, new: true, setDefaultsOnInsert: true },
+        { $set: { ownerUserId, kind, stateId: id, schemaVersion: 2, revision: next.revision, payload: next, updatedAt: new Date() } },
+        { upsert: !current, new: true, setDefaultsOnInsert: true, writeConcern: { w: 'majority', j: true } },
       ).lean().exec();
       if (!updated) throw new WorkflowRevisionConflictError(expectedRevision ?? actualRevision, actualRevision);
       this.cache.set(key, cloneValue(next));
       return next;
     } catch (reason: unknown) {
       if (reason instanceof WorkflowRevisionConflictError) throw reason;
+      if (reason instanceof DatabaseRevisionConflictError || isDuplicateKeyError(reason)) {
+        throw new WorkflowRevisionConflictError(expectedRevision ?? actualRevision, actualRevision + 1);
+      }
       throw new WorkflowPersistenceError(reason instanceof Error ? reason.message : undefined);
     }
   }
 
+  public async saveVersionedPair<T extends VersionedWorkflowValue, U extends VersionedWorkflowValue>(
+    ownerUserId: string,
+    primary: { kind: WorkflowStateKind; id: string; value: T },
+    secondary: { kind: WorkflowStateKind; id: string; value: U },
+  ): Promise<{ primary: T; secondary: U }> {
+    this.assertWritable();
+    return withMongoTransaction(async (session) => {
+      const saveOne = async <V extends VersionedWorkflowValue>(entry: { kind: WorkflowStateKind; id: string; value: V }): Promise<V> => {
+        const current = await WorkflowStateModel.findOne({ ownerUserId, kind: entry.kind, stateId: entry.id }).session(session).lean().exec();
+        const actualRevision = Number.isSafeInteger(current?.revision) ? Number(current?.revision) : 0;
+        const requestedRevision = revisionOf(entry.value);
+        if (requestedRevision > 1 && requestedRevision - 1 !== actualRevision) throw new WorkflowRevisionConflictError(requestedRevision - 1, actualRevision);
+        const next = { ...entry.value, schemaVersion: 2, revision: actualRevision + 1, updatedAt: new Date().toISOString() } as V;
+        const filter: Record<string, unknown> = { ownerUserId, kind: entry.kind, stateId: entry.id };
+        if (current) filter.revision = actualRevision;
+        const updated = await WorkflowStateModel.findOneAndUpdate(
+          filter,
+          { $set: { ownerUserId, kind: entry.kind, stateId: entry.id, schemaVersion: 2, revision: next.revision, payload: next, updatedAt: new Date() } },
+          { upsert: !current, new: true, setDefaultsOnInsert: true, session, writeConcern: { w: 'majority', j: true } },
+        ).lean().exec();
+        if (!updated) throw new WorkflowRevisionConflictError(actualRevision, actualRevision);
+        return next;
+      };
+      return { primary: await saveOne(primary), secondary: await saveOne(secondary) };
+    });
+  }
+
   public async get<T>(ownerUserId: string, kind: WorkflowStateKind, id: string): Promise<T | null> {
     const key = `${ownerUserId}:${kind}:${id}`;
-    const cached = this.cache.get(key);
-    if (cached) return cloneValue(cached as T);
+    const generation = getDatabaseGeneration();
+    if (generation !== this.cacheGeneration) {
+      this.cache.clear();
+      this.cacheGeneration = generation;
+    }
     if (getDatabaseStatus() !== 'connected') {
       if (this.requirePersistence) throw new WorkflowPersistenceError();
-      return null;
+      const cached = this.cache.get(key);
+      return cached ? cloneValue(cached as T) : null;
     }
     try {
-      const record = await WorkflowStateModel.findOne({ ownerUserId, kind, stateId: id }).lean().exec();
+      const record = await WorkflowStateModel.findOne({ ownerUserId, kind, stateId: id }).read('primary').lean().exec();
       if (!record) return null;
       this.cache.set(key, cloneValue(record.payload));
       return cloneValue(record.payload as T);

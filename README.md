@@ -138,6 +138,8 @@ Only `VITE_*` values are exposed to browser code. Never place credentials, token
 | `npm run typecheck` | Typecheck frontend, backend, and AI services. |
 | `npm run build` | Build all workspaces. |
 | `npm run audit` | Run the high-severity npm audit. |
+| `npm run test:mongodb` | Start disposable MongoDB replica-set containers and run Phase 3 durability tests. |
+| `npm run test:mongodb:backup` | Verify a disposable MongoDB backup and restore using explicit test URIs. |
 | `npm run e2e --workspace frontend` | Run Chromium viewport and workflow browser tests. |
 | `npm run e2e --workspace frontend -- e2e/phase2-workflow.spec.ts e2e/phase2-workflow-failures.spec.ts` | Run the Phase 2 workflow browser checks only. |
 | `npm run lint` | Run the configured TypeScript lint checks. |
@@ -313,6 +315,8 @@ The post-baseline workflow is implemented behind authenticated routes under `/ap
 - Workflow state and system events persist through the MongoDB boundary while retaining a bounded in-memory read-through cache.
 
 Phase 2 is complete for workflow correctness and remains not production-authorized. Current evidence covers root typecheck, lint, unit/integration tests, build, audit, Docker worker integration, worker-image policy verification, Docker Scout scanning, and browser workflow checks. The Phase 2 master plan records the final Duck result and the remaining production boundaries.
+
+Phase 3 MongoDB durability work is in progress on `feat/phase-3-mongodb-durability`. The current implementation adds revisioned persistence, topology-aware readiness, transaction boundaries, and fenced worker leases. Disposable replica-set and backup/restore checks require Docker and must not be reported as passed when that infrastructure is unavailable.
 
 The worker policy accepts only reviewed command shapes, keeps commands inside a copied scratch workspace, strips inherited environment variables, disables network-dependent package-manager behavior, and enforces file-count, directory-depth, byte, time, output, CPU, memory, PID, and tmpfs limits. The original extraction is mounted read-only and is fingerprint-checked after execution. Containers carry explicit ownership and lease labels, are removed after every job, and only expired stopped containers are eligible for orphan recovery.
 

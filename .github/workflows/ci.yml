@@ -2,7 +2,7 @@ name: Obsidian CI
 
 on:
   push:
-    branches: [main, fix/production-stabilization, feat/phase-2-workflow-correctness]
+    branches: [main, fix/production-stabilization, feat/phase-2-workflow-correctness, feat/phase-3-mongodb-durability]
   pull_request:
 
 permissions:
@@ -51,6 +51,9 @@ jobs:
 
       - name: Build workspaces
         run: npm run build
+
+      - name: MongoDB replica-set durability tests
+        run: npm run test:mongodb
 
       - name: Install Chromium for browser tests
         run: npx playwright install --with-deps chromium
