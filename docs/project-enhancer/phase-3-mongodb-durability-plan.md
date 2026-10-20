@@ -489,3 +489,19 @@ git diff --check
 - Docker Scout still reports 8 high base-image findings, though the critical threshold is clear with 0 critical findings.
 - Broker deployment/admission, registry signing/promotion, live production MongoDB HA/backup/retention operations, and Phase 5 privacy/encryption controls remain outside Phase 3 and unresolved.
 - The working tree remains uncommitted by instruction.
+
+## 16. GitHub checkpoint and final Duck 3-C receipt
+
+- Checkpoint commit: `202b2061e65cb714563af4855b0a72da23f24904` (`feat: complete Phase 3 MongoDB durability and recovery`).
+- Branch pushed without force to `origin/feat/phase-3-mongodb-durability`.
+- GitHub Actions run: https://github.com/Swayamjain1240/Obsidian/actions/runs/39434426699
+- GitHub Actions status: **success** (`Obsidian CI`, run #13; one `verify` job, all required steps completed successfully).
+- CI directly executed the MongoDB replica-set durability step, browser suites, BuildKit worker image/provenance steps, worker-image policy verification, Docker worker integration tests, audit, build, typecheck, lint, and whitespace checks. The MongoDB step was not skipped or marked unavailable.
+- Local exact test receipt for the pushed commit: frontend **41 passed**; backend **296 passed / 14 skipped**; AIServices **2 passed**; aggregate **339 passed / 14 skipped / 0 failed**. The skipped default-suite tests are infrastructure-gated cases; all mandatory MongoDB cases were executed separately below.
+- Disposable MongoDB receipt: **6 passed / 0 skipped / 0 failed** across transactions/rollback, owner-scoped persistence/indexes, primary-stop failover/reconnect, backup/restore integrity, durable lease fencing, and concurrent recovery races.
+- Docker worker receipt: **38 passed / 2 skipped / 0 failed**. The two skipped entries were MongoDB lease-failover cases and passed in the disposable MongoDB receipt above. Browser E2E receipt: **5 passed / 0 failed**.
+- Backup/restore verified two populated workflow-state documents and matching index names, while recreating empty collection metadata/indexes without data mismatches. Primary `mongo-1` was stopped, a replacement primary was elected, and a post-failover write/reconnect succeeded.
+- Security receipt: npm audit found **0 vulnerabilities**; Docker Scout found **0 critical and 8 high** base-image findings. The 8 high findings remain release blockers.
+- Working tree after the checkpoint push: clean on `feat/phase-3-mongodb-durability`.
+- Final Phase 3 verdict: **PASS for development and CI reliability verification; production authorization remains denied**.
+- Phase 4 readiness: **not authorized to begin**. Wait for Phase 3 review/authorization; retain the 8 high Docker findings and production broker deployment/admission, registry signing/promotion, privacy/encryption, and operational MongoDB HA/backup/retention requirements as release blockers.
