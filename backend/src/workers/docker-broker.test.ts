@@ -38,6 +38,12 @@ describe('Docker broker boundary', () => {
         }
       }
       expect(ready).toBe(true);
+      const unsupported = await fetch(`http://127.0.0.1:${port}/run`, {
+        method: 'POST',
+        body: '{}',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'text/plain' },
+      });
+      expect(unsupported.status).toBe(415);
       const leases = new InMemoryWorkerLeaseStore();
       const broker = new DockerBrokerExecutor({ image: 'obsidian-sandbox:dev', brokerUrl: `http://127.0.0.1:${port}`, brokerToken: token, dockerBinary: 'docker-that-is-not-installed', cleanupTimeoutMs: 5_000, leaseStore: leases, leaseDurationMs: 10_000 });
       const result = await broker.run(command, { cwd: process.cwd(), timeoutMs: 2_000, maxOutputBytes: 1_024, signal: new AbortController().signal, workerJobId: '00000000-0000-4000-8000-000000000011' });

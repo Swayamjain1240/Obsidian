@@ -64,7 +64,7 @@ describe('detection routes', () => {
     const app = createApp(config, { sessionStore, handleStore: handles, detectionService: new DetectionService(config, handles, engine) });
     const cookie = `obsidian_session=${signedSession}`;
 
-    const started = await request(app).post('/api/v1/intake/detections').set('Cookie', cookie).send({ snapshotHandle: handle });
+    const started = await request(app).post('/api/v1/intake/detections').set('Cookie', cookie).set('Origin', config.FRONTEND_ORIGIN).send({ snapshotHandle: handle });
     expect(started.status).toBe(202);
     const runId = started.body.run.runId as string;
 
@@ -85,7 +85,7 @@ describe('detection routes', () => {
     const handle = handles.create('7', snapshot, Date.now(), first.get(firstCookie.split('=')[1])!.sessionId);
     const app = createApp(config, { sessionStore: first, handleStore: handles, detectionService: new DetectionService(config, handles, engine) });
 
-    const started = await request(app).post('/api/v1/intake/detections').set('Cookie', firstCookie).send({ snapshotHandle: handle });
+    const started = await request(app).post('/api/v1/intake/detections').set('Cookie', firstCookie).set('Origin', config.FRONTEND_ORIGIN).send({ snapshotHandle: handle });
     const runId = started.body.run.runId as string;
     const forbidden = await request(app).get(`/api/v1/intake/detections/${runId}`).set('Cookie', secondCookie);
     expect(forbidden.status).toBe(404);

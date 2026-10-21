@@ -69,14 +69,15 @@ export class SessionStore {
   }
 
   async getAsync(signedSessionId: string): Promise<GithubSession | null> {
-    const cached = this.get(signedSessionId);
-    if (cached) return cached;
     const sessionId = this.verify(signedSessionId);
     if (!sessionId) return null;
-    if (getDatabaseStatus() !== 'connected') return null;
+    if (getDatabaseStatus() !== 'connected') return this.requirePersistence ? null : this.get(signedSessionId);
     try {
       const record = await AuthSessionModel.findOne({ sessionId }).lean().exec();
-      if (!record || new Date(record.expiresAt).getTime() <= Date.now()) return null;
+      if (!record || new Date(record.expiresAt).getTime() <= Date.now()) {
+        this.sessions.delete(sessionId);
+        return null;
+      }
       const session: GithubSession = {
         sessionId,
         githubUserId: record.githubUserId,
@@ -87,7 +88,7 @@ export class SessionStore {
       this.sessions.set(sessionId, session);
       return session;
     } catch {
-      return null;
+      return this.requirePersistence ? null : this.get(signedSessionId);
     }
   }
 

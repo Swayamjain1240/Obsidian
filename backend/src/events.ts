@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 export type EventStatus = 'passed' | 'failed' | 'skipped' | 'unavailable' | 'not_implemented';
 
@@ -15,6 +15,9 @@ export interface SystemEvent {
   safeSummary: string;
   affectedPaths: string[];
   userActionRequired: boolean;
+  requestId?: string;
+  correlationId?: string;
+  integrityHash: string;
 }
 
 const secretPatterns = [
@@ -26,14 +29,16 @@ export function redact(value: string): string {
   return secretPatterns.reduce((current, pattern) => current.replace(pattern, '[REDACTED]'), value);
 }
 
-export function createSystemEvent(input: Omit<SystemEvent, 'eventId' | 'timestamp' | 'safeSummary'> & { safeSummary: string }): SystemEvent {
-  return {
+export function createSystemEvent(input: Omit<SystemEvent, 'eventId' | 'timestamp' | 'safeSummary' | 'integrityHash'> & { eventId?: string; safeSummary: string }): SystemEvent {
+  const event = {
     ...input,
-    eventId: randomUUID(),
+    eventId: input.eventId ?? randomUUID(),
     timestamp: new Date(),
     safeSummary: redact(input.safeSummary),
     affectedPaths: input.affectedPaths.map((path) => redact(path)),
   };
+  const integrityHash = createHash('sha256').update(JSON.stringify({ ...event, timestamp: event.timestamp.toISOString() })).digest('hex');
+  return { ...event, integrityHash };
 }
 
 export function createDurableEventSink(): (event: SystemEvent) => Promise<void> {

@@ -31,9 +31,50 @@ interface RecoveryRequest {
 
 type BrokerRequest = RunRequest | RecoveryRequest;
 
+function boundedString(value: unknown, max: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= max;
+}
+
+function validWorkerId(value: unknown): value is string {
+  return boundedString(value, 160) && /^[A-Za-z0-9._:-]+$/.test(value);
+}
+
+function validRunRequest(value: Record<string, unknown>): boolean {
+  const options = value.options;
+  const command = value.command;
+  if (value.type !== 'run' || typeof command !== 'object' || command === null || Array.isArray(command)) return false;
+  const commandRecord = command as Record<string, unknown>;
+  if (!Array.isArray(commandRecord.args)) return false;
+  return boundedString(commandRecord.id, 160)
+    && boundedString(commandRecord.executable, 64)
+    && commandRecord.args.every((arg: unknown) => boundedString(arg, 512))
+    && typeof options === 'object' && options !== null && !Array.isArray(options)
+    && Number.isSafeInteger((options as Record<string, unknown>).timeoutMs)
+    && Number.isSafeInteger((options as Record<string, unknown>).maxOutputBytes)
+    && validWorkerId(value.workerJobId)
+    && validWorkerId(value.workerOwnerId)
+    && Number.isSafeInteger(value.workerLeaseExpiresAt)
+    && boundedString(value.image, 256)
+    && Number.isSafeInteger(value.cleanupTimeoutMs)
+    && (value.trustedSnapshotRoot === undefined || boundedString(value.trustedSnapshotRoot, 512));
+}
+
+function validRecoveryRequest(value: Record<string, unknown>): boolean {
+  return value.type === 'recover'
+    && Array.isArray(value.leases)
+    && value.leases.length <= 100
+    && value.leases.every((lease) => {
+      if (typeof lease !== 'object' || lease === null || Array.isArray(lease)) return false;
+      const candidate = lease as Record<string, unknown>;
+      return validWorkerId(candidate.jobId) && boundedString(candidate.containerName, 256) && /^[A-Za-z0-9._:-]+$/.test(candidate.containerName as string);
+    });
+}
+
 function validateRequest(value: unknown): BrokerRequest {
-  if (typeof value !== 'object' || value === null || Array.isArray(value) || (value as { type?: unknown }).type !== 'run' && (value as { type?: unknown }).type !== 'recover') throw new Error('broker-request-invalid');
-  return value as BrokerRequest;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('broker-request-invalid');
+  const candidate = value as Record<string, unknown>;
+  if (validRunRequest(candidate) || validRecoveryRequest(candidate)) return value as BrokerRequest;
+  throw new Error('broker-request-invalid');
 }
 
 async function parseRequest(body: string): Promise<BrokerRequest> {
@@ -129,6 +170,11 @@ async function handleHttpRequest(request: IncomingMessage, response: ServerRespo
   if (!authorized(request, token)) {
     response.writeHead(401, { 'content-type': 'application/json' });
     response.end(JSON.stringify({ error: 'unauthorized' }));
+    return;
+  }
+  if (request.headers['content-type'] !== 'application/json') {
+    response.writeHead(415, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ error: 'unsupported-media-type' }));
     return;
   }
   try {

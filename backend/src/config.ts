@@ -11,8 +11,17 @@ const configSchema = z.object({
   MONGODB_SOCKET_TIMEOUT_MS: z.coerce.number().int().positive().max(300_000).default(30_000),
   MONGODB_HEARTBEAT_FREQUENCY_MS: z.coerce.number().int().positive().max(120_000).default(10_000),
   FRONTEND_ORIGIN: z.string().url(),
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(0),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
+  RATE_LIMIT_AUTH_MAX_REQUESTS: z.coerce.number().int().positive().max(1_000).default(20),
+  RATE_LIMIT_MUTATION_MAX_REQUESTS: z.coerce.number().int().positive().max(10_000).default(60),
+  REQUIRE_SECURITY_AUDIT: z.preprocess((value) => {
+    if (value === undefined) return undefined;
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  }, z.boolean().default(false)),
   AI_PROVIDER: z.string().min(1).default('disabled'),
   AI_PROVIDER_API_KEY: z.string().optional(),
   AI_PROVIDER_BASE_URL: z.string().url().optional(),
@@ -96,9 +105,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('Invalid environment configuration: a separately permissioned worker broker is required in production.');
   }
 
+  if (isProduction && env.REQUIRE_SECURITY_AUDIT === 'false') {
+    throw new Error('Invalid environment configuration: security audit persistence cannot be disabled in production.');
+  }
+
   return {
     ...result.data,
     BASELINE_REQUIRE_ISOLATION:
       isProduction || result.data.BASELINE_REQUIRE_ISOLATION,
+    REQUIRE_SECURITY_AUDIT: isProduction || result.data.REQUIRE_SECURITY_AUDIT,
   };
 }

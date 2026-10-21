@@ -31,6 +31,15 @@ function setup() {
 }
 
 describe('workflow mutation protocol', () => {
+  it('rejects malformed workflow identifiers before authorization logic runs', async () => {
+    const { app, cookie } = setup();
+    const response = await request(app)
+      .get('/api/v1/workflow/version2/../bad%20id')
+      .set('Cookie', `obsidian_session=${cookie}`);
+
+    expect([400, 404]).toContain(response.status);
+  });
+
   it('requires revision and idempotency headers, then replays the original receipt', async () => {
     const { app, cookie } = setup();
     const missing = await request(app).post('/api/v1/workflow/repairs').set('Cookie', `obsidian_session=${cookie}`).set('Origin', config.FRONTEND_ORIGIN).send({ baselineRunId: 'baseline-1' });

@@ -22,6 +22,14 @@ const previewSchema = z.object({ previewHash: z.string().regex(/^[a-f0-9]{64}$/i
 function owner(request: Request): string { return request.auth?.userId ?? ''; }
 function param(request: Request, name: string): string { const value = request.params[name]; return Array.isArray(value) ? value[0] : value; }
 
+function validateParam(_request: Request, response: Response, next: () => void, value: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(value)) {
+    response.status(400).json(errorBody('INVALID_INPUT', 'Workflow identifier is invalid.', response.locals.requestId as string));
+    return;
+  }
+  next();
+}
+
 function accessToken(response: Response): string {
   const session = response.locals.githubSession as { accessToken?: string } | undefined;
   return session?.accessToken ?? '';
@@ -63,6 +71,7 @@ function respondError(response: Response, reason: unknown): void {
 export function createWorkflowRouter(config: AppConfig, sessionStore: SessionStore, workflow: WorkflowService) {
   const router = Router();
   router.use(requireGithubSession(sessionStore));
+  for (const name of ['planId', 'itemId', 'runId', 'recommendationId']) router.param(name, validateParam);
 
   router.post('/repairs', requireSameOrigin(config.FRONTEND_ORIGIN), async (request, response) => {
     const parsed = startSchema.safeParse(request.body);

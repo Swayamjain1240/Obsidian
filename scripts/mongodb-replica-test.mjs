@@ -66,7 +66,7 @@ for (let attempt = 0; attempt < 60 && !ready; attempt += 1) {
 }
 if (!ready) throw new Error('MongoDB replica set did not elect a primary and secondary members.');
 
-docker(['exec', containers[0], 'mongosh', '--quiet', '--eval', "db.getSiblingDB('obsidian_phase3').dropDatabase()"]);
+docker(['exec', containers[1], 'mongosh', '--quiet', `mongodb://mongo-1:27017,mongo-2:27017,mongo-3:27017/obsidian_phase3?replicaSet=rs0&readPreference=primary`, '--eval', "db.getSiblingDB('obsidian_phase3').dropDatabase()"]);
 console.log(`MongoDB replica set ready on ${containers.join(', ')}.`);
 
 runBackendTests([

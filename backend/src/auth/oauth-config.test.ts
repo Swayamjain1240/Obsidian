@@ -34,4 +34,9 @@ describe('GitHub OAuth configuration', () => {
   it('rejects incomplete OAuth configuration', () => {
     expect(() => getGithubOAuthConfig({ ...config, GITHUB_CLIENT_SECRET: undefined })).toThrow(/incomplete/);
   });
+
+  it('rejects administrative or write-capable OAuth scopes', () => {
+    expect(() => getGithubOAuthConfig({ ...config, GITHUB_OAUTH_SCOPES: 'read:user,delete_repo' })).toThrow(/least-privilege/);
+    expect(() => getGithubOAuthConfig({ ...config, GITHUB_OAUTH_SCOPES: 'admin:org' })).toThrow(/least-privilege/);
+  });
 });

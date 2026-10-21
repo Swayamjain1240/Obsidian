@@ -95,17 +95,17 @@ describe('completeness routes', () => {
     const completeness = new CompletenessService(config, completenessEngine);
     const app = createApp(config, { sessionStore, handleStore: handles, detectionService: detection, completenessService: completeness });
 
-    const startedDetection = await request(app).post('/api/v1/intake/detections').set('Cookie', cookie).send({ snapshotHandle: handle });
+    const startedDetection = await request(app).post('/api/v1/intake/detections').set('Cookie', cookie).set('Origin', config.FRONTEND_ORIGIN).send({ snapshotHandle: handle });
     const detectionRunId = startedDetection.body.run.runId as string;
-    const beforeConfirmation = await request(app).post('/api/v1/intake/completeness').set('Cookie', cookie).send({ detectionRunId });
+    const beforeConfirmation = await request(app).post('/api/v1/intake/completeness').set('Cookie', cookie).set('Origin', config.FRONTEND_ORIGIN).send({ detectionRunId });
     expect(beforeConfirmation.status).toBe(409);
     expect(beforeConfirmation.body.error.code).toBe('DETECTION_STATE_INVALID');
 
     await waitForDetection(detection, detectionRunId);
-    const confirmed = await request(app).post(`/api/v1/intake/detections/${detectionRunId}/confirm`).set('Cookie', cookie).send({ candidateIds: ['typescript'], notDetected: false });
+    const confirmed = await request(app).post(`/api/v1/intake/detections/${detectionRunId}/confirm`).set('Cookie', cookie).set('Origin', config.FRONTEND_ORIGIN).send({ candidateIds: ['typescript'], notDetected: false });
     expect(confirmed.status).toBe(200);
 
-    const started = await request(app).post('/api/v1/intake/completeness').set('Cookie', cookie).send({ detectionRunId });
+    const started = await request(app).post('/api/v1/intake/completeness').set('Cookie', cookie).set('Origin', config.FRONTEND_ORIGIN).send({ detectionRunId });
     expect(started.status).toBe(202);
     const runId = started.body.run.runId as string;
     await waitForCompleteness(completeness, runId);
@@ -113,7 +113,7 @@ describe('completeness routes', () => {
     expect(loaded.status).toBe(200);
     expect(loaded.body.run.status).toBe('awaiting_scope');
 
-    const scope = await request(app).post(`/api/v1/intake/completeness/${runId}/scope`).set('Cookie', cookie).send({ mode: 'FULL' });
+    const scope = await request(app).post(`/api/v1/intake/completeness/${runId}/scope`).set('Cookie', cookie).set('Origin', config.FRONTEND_ORIGIN).send({ mode: 'FULL' });
     expect(scope.status).toBe(200);
     expect(scope.body.run.scopeMode).toBe('FULL');
     expect(scope.body.run.nextPhase).toBe('baseline_testing');

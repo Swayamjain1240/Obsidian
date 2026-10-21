@@ -21,5 +21,6 @@ describe('system events', () => {
 
     expect(event.eventId).toBeTruthy();
     expect(event.safeSummary).not.toContain('hidden-token');
+    expect(event.integrityHash).toMatch(/^[a-f0-9]{64}$/);
   });
 });

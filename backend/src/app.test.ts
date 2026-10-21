@@ -81,4 +81,37 @@ describe('backend health routes', () => {
     expect(response.status).toBe(200);
     expect(response.body.user).toBeNull();
   });
+
+  it('normalizes untrusted request IDs and emits strict browser security headers', async () => {
+    const response = await request(app).get('/health/live').set('X-Request-Id', 'not valid value');
+
+    expect(response.status).toBe(200);
+    expect(response.headers['x-request-id']).not.toBe('not valid value');
+    expect(response.headers['content-security-policy']).toContain("default-src 'none'");
+    expect(response.headers['referrer-policy']).toBe('no-referrer');
+  });
+
+  it('rejects originless cookie mutations and non-JSON mutation bodies', async () => {
+    const originless = await request(app).post('/auth/logout');
+    expect(originless.status).toBe(403);
+    expect(originless.body.error.code).toBe('CSRF_ORIGIN_REJECTED');
+
+    const wrongContentType = await request(app)
+      .post('/auth/logout')
+      .set('Origin', config.FRONTEND_ORIGIN)
+      .set('Content-Type', 'text/plain')
+      .send('logout');
+    expect(wrongContentType.status).toBe(415);
+    expect(wrongContentType.body.error.code).toBe('UNSUPPORTED_MEDIA_TYPE');
+  });
+
+  it('enforces bounded API rate limits with a stable client error', async () => {
+    const limited = createApp({ ...config, RATE_LIMIT_MAX_REQUESTS: 1 });
+    const first = await request(limited).get('/api/v1/status');
+    const second = await request(limited).get('/api/v1/status');
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(429);
+    expect(second.body.error.code).toBe('RATE_LIMITED');
+  });
 });

@@ -1,5 +1,3 @@
-import crypto from 'node:crypto';
-
 import cors from 'cors';
 import express, { type Request, type Response } from 'express';
 
@@ -24,7 +22,8 @@ import { WorkflowService } from './workflow/service.js';
 import { DurableWorkflowStore } from './workflow/store.js';
 import { DurableRunStore } from './workflow/run-store.js';
 import { getDatabaseRuntimeStatus } from './db/runtime.js';
-import { securityMiddleware } from './security.js';
+import { authRateLimit, normalizeRequestId, requireJsonContentType, securityMiddleware } from './security.js';
+import { createRequiredSecurityAuditSink, requireSecurityAudit, type SecurityAuditSink } from './security-audit.js';
 import { checkDockerSandbox } from './workers/docker-preflight.js';
 import { DockerBrokerExecutor } from './workers/docker-broker.js';
 import type { RepositoryCommandExecutor } from './workers/executor.js';
@@ -42,6 +41,7 @@ export function createApp(config: AppConfig, dependencies: {
   workflowService?: WorkflowService;
   workerExecutor?: RepositoryCommandExecutor;
   workerLeaseStore?: WorkerLeaseStore;
+  securityAuditSink?: SecurityAuditSink;
 } = {}) {
   const app = express();
   const workerExecutor: RepositoryCommandExecutor = dependencies.workerExecutor ?? new DockerBrokerExecutor({
@@ -58,15 +58,16 @@ export function createApp(config: AppConfig, dependencies: {
   app.locals.workerExecutor = workerExecutor;
 
   app.disable('x-powered-by');
-  app.set('trust proxy', 1);
+  app.set('trust proxy', config.TRUST_PROXY_HOPS);
   app.use((request, response, next) => {
-    const requestId = request.header('x-request-id') ?? crypto.randomUUID();
+    const requestId = normalizeRequestId(request.header('x-request-id'));
     response.locals.requestId = requestId;
     response.setHeader('x-request-id', requestId);
     next();
   });
   app.use(securityMiddleware(config));
   app.use(express.json({ limit: '100kb' }));
+  app.use(requireJsonContentType);
   app.use(
     cors({
       origin: (origin, callback) => {
@@ -80,6 +81,8 @@ export function createApp(config: AppConfig, dependencies: {
       credentials: true,
     }),
   );
+  const securityAuditSink = dependencies.securityAuditSink ?? createRequiredSecurityAuditSink();
+  app.use('/auth', authRateLimit(config), requireSecurityAudit(securityAuditSink, config.REQUIRE_SECURITY_AUDIT));
   app.get('/health/live', (_request: Request, response: Response) => {
     response.json({ status: 'ok', service: 'backend', requestId: response.locals.requestId });
   });
@@ -124,6 +127,7 @@ export function createApp(config: AppConfig, dependencies: {
     const completenessService = dependencies.completenessService ?? new CompletenessService(config, undefined, eventSink, runStore);
     const baselineService = dependencies.baselineService ?? new BaselineService(config, completenessService, undefined, eventSink, runStore, workerExecutor);
     const workflowService = dependencies.workflowService ?? new WorkflowService(config, baselineService, completenessService, workflowStore, eventSink, workerExecutor);
+    app.use('/api/v1', requireSecurityAudit(securityAuditSink, config.REQUIRE_SECURITY_AUDIT));
     app.use('/api/v1/github', createGithubRouter(sessionStore, config, selectionStore));
     app.use('/api/v1/intake', createIntakeRouter(config, sessionStore, dependencies.intakeService, handleStore, selectionStore));
     app.use('/api/v1/intake/detections', createDetectionRouter(config, sessionStore, detectionService));

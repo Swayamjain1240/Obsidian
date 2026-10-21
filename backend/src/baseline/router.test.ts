@@ -54,17 +54,17 @@ describe('baseline routes', () => {
 
     const unauthenticated = await request(app).post('/api/v1/intake/baseline').send({ completenessRunId: 'completeness-router' });
     expect(unauthenticated.status).toBe(401);
-    const invalid = await request(app).post('/api/v1/intake/baseline').set('Cookie', cookie).send({ completenessRunId: '' });
+    const invalid = await request(app).post('/api/v1/intake/baseline').set('Cookie', cookie).set('Origin', config.FRONTEND_ORIGIN).send({ completenessRunId: '' });
     expect(invalid.status).toBe(400);
 
-    const started = await request(app).post('/api/v1/intake/baseline').set('Cookie', cookie).send({ completenessRunId: 'completeness-router' });
+    const started = await request(app).post('/api/v1/intake/baseline').set('Cookie', cookie).set('Origin', config.FRONTEND_ORIGIN).send({ completenessRunId: 'completeness-router' });
     expect(started.status).toBe(202);
     const runId = started.body.run.runId as string;
     await waitFor(baseline, runId);
     const loaded = await request(app).get(`/api/v1/intake/baseline/${runId}`).set('Cookie', cookie);
     expect(loaded.status).toBe(200);
     expect(loaded.body.run.scopeMode).toBe('EXISTING_ONLY');
-    const cancelled = await request(app).post(`/api/v1/intake/baseline/${runId}/cancel`).set('Cookie', cookie).send({});
+    const cancelled = await request(app).post(`/api/v1/intake/baseline/${runId}/cancel`).set('Cookie', cookie).set('Origin', config.FRONTEND_ORIGIN).send({});
     expect(cancelled.status).toBe(200);
     expect(cancelled.body.run.status).toBe('passed');
   });

@@ -23,6 +23,8 @@ export class DurableEventStore {
         { $setOnInsert: event },
         { upsert: true, writeConcern: { w: 'majority', j: true } },
       ).exec();
+      const persisted = await SystemEventModel.findOne({ eventId: event.eventId }).select({ integrityHash: 1 }).lean().exec();
+      if (!persisted || persisted.integrityHash !== event.integrityHash) throw new EventPersistenceError('System event integrity conflict.');
     } catch (reason: unknown) {
       throw new EventPersistenceError(reason instanceof Error ? reason.message : undefined);
     }

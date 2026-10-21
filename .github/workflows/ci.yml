@@ -2,7 +2,7 @@ name: Obsidian CI
 
 on:
   push:
-    branches: [main, fix/production-stabilization, feat/phase-2-workflow-correctness, feat/phase-3-mongodb-durability]
+    branches: [main, fix/production-stabilization, feat/phase-2-workflow-correctness, feat/phase-3-mongodb-durability, feat/phase-4-api-security-audit]
   pull_request:
 
 permissions:
@@ -33,6 +33,9 @@ jobs:
 
       - name: Unit and integration tests
         run: npm run test
+
+      - name: Phase 4 API security regression
+        run: npm run test --workspace backend -- --maxWorkers=1 src/app.test.ts src/auth src/security-audit.test.ts src/events.test.ts src/events-store.test.ts src/workflow/router.test.ts src/workers/docker-broker.test.ts
 
       - name: Phase 2 workflow correctness matrix
         run: npm run test --workspace backend -- src/workflow

@@ -87,6 +87,9 @@ const systemEventSchema = new Schema(
     safeSummary: { type: String, required: true, immutable: true },
     affectedPaths: { type: [String], required: true, immutable: true },
     userActionRequired: { type: Boolean, required: true, immutable: true },
+    requestId: { type: String, default: null, immutable: true, match: /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/ },
+    correlationId: { type: String, default: null, immutable: true, match: /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/ },
+    integrityHash: { type: String, required: true, immutable: true, match: /^[a-f0-9]{64}$/ },
   },
   { timestamps: false },
 );
