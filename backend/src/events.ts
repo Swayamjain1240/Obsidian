@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 
+import { redactText } from './privacy/redaction.js';
+
 export type EventStatus = 'passed' | 'failed' | 'skipped' | 'unavailable' | 'not_implemented';
 
 export interface SystemEvent {
@@ -20,13 +22,8 @@ export interface SystemEvent {
   integrityHash: string;
 }
 
-const secretPatterns = [
-  /(?:api[_-]?key|token|password|secret)\s*[:=]\s*[^\s,;]+/gi,
-  /Bearer\s+[A-Za-z0-9._-]+/gi,
-];
-
 export function redact(value: string): string {
-  return secretPatterns.reduce((current, pattern) => current.replace(pattern, '[REDACTED]'), value);
+  return redactText(value);
 }
 
 export function createSystemEvent(input: Omit<SystemEvent, 'eventId' | 'timestamp' | 'safeSummary' | 'integrityHash'> & { eventId?: string; safeSummary: string }): SystemEvent {

@@ -15,6 +15,10 @@ void connectDatabase(config.MONGODB_URI, {
   .then(async () => {
     const worker = app.locals.workerExecutor as DockerBrokerExecutor | undefined;
     if (worker) await worker.recoverExpiredLeases();
+    const privacyRetention = app.locals.privacyRetention as { runDueAll: () => Promise<unknown> } | undefined;
+    if (privacyRetention) await privacyRetention.runDueAll();
+    const privacyDeletion = app.locals.privacyDeletion as { reconcilePending: () => Promise<unknown> } | undefined;
+    if (privacyDeletion) await privacyDeletion.reconcilePending();
   })
   .catch(() => {
     console.error('MongoDB connection or managed worker recovery is unavailable; the backend will remain live but not ready.');

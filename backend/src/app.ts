@@ -29,6 +29,11 @@ import { DockerBrokerExecutor } from './workers/docker-broker.js';
 import type { RepositoryCommandExecutor } from './workers/executor.js';
 import { MongoWorkerLeaseStore, type WorkerLeaseStore } from './workers/lease-store.js';
 import { RepositorySelectionStore } from './intake/repository-authorization.js';
+import { parseConfiguredKeyring } from './privacy/encryption.js';
+import { PrivacyDeletionService } from './privacy/deletion.js';
+import { createPrivacyRouter } from './privacy/router.js';
+import { PrivacyRetentionService } from './privacy/retention-service.js';
+import { retentionPolicy } from './privacy/retention.js';
 
 export function createApp(config: AppConfig, dependencies: {
   sessionStore?: SessionStore;
@@ -115,25 +120,31 @@ export function createApp(config: AppConfig, dependencies: {
     });
   });
 
-  const sessionStore = dependencies.sessionStore ?? (config.AUTH_SESSION_SECRET ? new SessionStore(config.AUTH_SESSION_SECRET, undefined, undefined, config.NODE_ENV !== 'test') : undefined);
+  const tokenKeyring = parseConfiguredKeyring(config.AUTH_TOKEN_ENCRYPTION_KEYS, config.AUTH_TOKEN_ENCRYPTION_CURRENT_KEY_ID);
+  const sessionStore = dependencies.sessionStore ?? (config.AUTH_SESSION_SECRET ? new SessionStore(config.AUTH_SESSION_SECRET, config.AUTH_SESSION_TTL_MS, undefined, config.NODE_ENV !== 'test', tokenKeyring) : undefined);
   app.use('/auth', createAuthRouter(config, undefined, sessionStore));
   if (sessionStore) {
     const eventSink = dependencies.detectionEventSink ?? createRequiredDurableEventSink();
     const runStore = new DurableRunStore(config.NODE_ENV !== 'test');
     const workflowStore = new DurableWorkflowStore(config.NODE_ENV !== 'test');
+     const privacyRetention = new PrivacyRetentionService(workflowStore, retentionPolicy(config), runStore);
+    app.locals.privacyRetention = privacyRetention;
     const handleStore = dependencies.handleStore ?? new SnapshotHandleStore(60 * 60 * 1000, 10_000, workflowStore);
     const selectionStore = new RepositorySelectionStore(workflowStore);
     const detectionService = dependencies.detectionService ?? new DetectionService(config, handleStore, undefined, eventSink, runStore);
     const completenessService = dependencies.completenessService ?? new CompletenessService(config, undefined, eventSink, runStore);
     const baselineService = dependencies.baselineService ?? new BaselineService(config, completenessService, undefined, eventSink, runStore, workerExecutor);
     const workflowService = dependencies.workflowService ?? new WorkflowService(config, baselineService, completenessService, workflowStore, eventSink, workerExecutor);
+     const privacyDeletion = new PrivacyDeletionService(config, workflowStore, sessionStore, eventSink, runStore);
+    app.locals.privacyDeletion = privacyDeletion;
     app.use('/api/v1', requireSecurityAudit(securityAuditSink, config.REQUIRE_SECURITY_AUDIT));
     app.use('/api/v1/github', createGithubRouter(sessionStore, config, selectionStore));
-    app.use('/api/v1/intake', createIntakeRouter(config, sessionStore, dependencies.intakeService, handleStore, selectionStore));
+    app.use('/api/v1/intake', createIntakeRouter(config, sessionStore, dependencies.intakeService, handleStore, selectionStore, privacyRetention));
     app.use('/api/v1/intake/detections', createDetectionRouter(config, sessionStore, detectionService));
     app.use('/api/v1/intake/completeness', createCompletenessRouter(config, sessionStore, detectionService, completenessService));
     app.use('/api/v1/intake/baseline', createBaselineRouter(config, sessionStore, baselineService));
     app.use('/api/v1/workflow', createWorkflowRouter(config, sessionStore, workflowService));
+    app.use('/api/v1/privacy', createPrivacyRouter(config, sessionStore, privacyDeletion));
   }
 
   app.use((_request, response: Response) => {

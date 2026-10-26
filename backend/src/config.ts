@@ -31,6 +31,17 @@ const configSchema = z.object({
   GITHUB_CALLBACK_URL: z.string().url().optional(),
   GITHUB_OAUTH_SCOPES: z.string().default('read:user,repo'),
   AUTH_SESSION_SECRET: z.string().min(32).optional(),
+  AUTH_SESSION_TTL_MS: z.coerce.number().int().positive().max(30 * 24 * 60 * 60 * 1000).default(8 * 60 * 60 * 1000),
+  AUTH_TOKEN_ENCRYPTION_KEYS: z.string().optional(),
+  AUTH_TOKEN_ENCRYPTION_CURRENT_KEY_ID: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/).optional(),
+  PRIVACY_SNAPSHOT_RETENTION_MS: z.coerce.number().int().positive().default(7 * 24 * 60 * 60 * 1000),
+  PRIVACY_WORKSPACE_RETENTION_MS: z.coerce.number().int().positive().default(24 * 60 * 60 * 1000),
+  PRIVACY_RUN_RETENTION_MS: z.coerce.number().int().positive().default(30 * 24 * 60 * 60 * 1000),
+  PRIVACY_PREVIEW_RETENTION_MS: z.coerce.number().int().positive().default(24 * 60 * 60 * 1000),
+  PRIVACY_AI_CONTEXT_RETENTION_MS: z.coerce.number().int().positive().default(24 * 60 * 60 * 1000),
+  PRIVACY_AUDIT_RETENTION_MS: z.coerce.number().int().positive().default(365 * 24 * 60 * 60 * 1000),
+  PRIVACY_CLEANUP_BATCH_SIZE: z.coerce.number().int().positive().max(1_000).default(100),
+  PRIVACY_DELETION_ACTIVE_POLICY: z.enum(['block', 'cancel']).default('block'),
   SNAPSHOT_MAX_BYTES: z.coerce.number().int().positive().max(500_000_000).default(52_428_800),
   SNAPSHOT_ROOT: z.string().min(1).default('.obsidian-workspaces'),
   SNAPSHOT_MAX_EXTRACTED_BYTES: z.coerce.number().int().positive().max(2_000_000_000).default(209_715_200),
@@ -107,6 +118,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   if (isProduction && env.REQUIRE_SECURITY_AUDIT === 'false') {
     throw new Error('Invalid environment configuration: security audit persistence cannot be disabled in production.');
+  }
+
+  if (result.data.AUTH_TOKEN_ENCRYPTION_KEYS && !result.data.AUTH_TOKEN_ENCRYPTION_CURRENT_KEY_ID) {
+    throw new Error('Invalid environment configuration: AUTH_TOKEN_ENCRYPTION_CURRENT_KEY_ID is required when AUTH_TOKEN_ENCRYPTION_KEYS is configured.');
   }
 
   return {

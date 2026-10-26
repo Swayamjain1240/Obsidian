@@ -42,10 +42,12 @@ const authSessionSchema = new Schema(
     accessTokenCiphertext: { type: String, required: true },
     accessTokenIv: { type: String, required: true },
     accessTokenTag: { type: String, required: true },
+    accessTokenKeyId: { type: String, required: false, default: null },
     expiresAt: { type: Date, required: true, index: true },
   },
   { timestamps: true },
 );
+authSessionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 const runSchema = new Schema(
   {
@@ -95,6 +97,7 @@ const systemEventSchema = new Schema(
 );
 systemEventSchema.index({ sessionId: 1, timestamp: 1 });
 systemEventSchema.index({ projectId: 1, runId: 1, timestamp: 1 });
+systemEventSchema.index({ timestamp: 1 });
 
 export const ProjectModel = mongoose.models.Project ?? mongoose.model('Project', projectSchema);
 export const RepositorySnapshotModel =
@@ -119,6 +122,7 @@ const workflowStateSchema = new Schema(
 workflowStateSchema.index({ ownerUserId: 1, kind: 1, stateId: 1 }, { unique: true });
 workflowStateSchema.index({ ownerUserId: 1, kind: 1, revision: 1 });
 workflowStateSchema.index({ ownerUserId: 1, updatedAt: -1 });
+workflowStateSchema.index({ ownerUserId: 1, kind: 1, 'payload.dueAt': 1, 'payload.createdAt': 1, stateId: 1 });
 
 export const WorkflowStateModel = mongoose.models.WorkflowState ?? mongoose.model('WorkflowState', workflowStateSchema);
 

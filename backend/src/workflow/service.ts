@@ -144,8 +144,26 @@ export class WorkflowService {
   ) { this.worker = new ChangeWorker(config, commandExecutor); this.idempotency = new IdempotencyLedger(this.store); this.approvalLedger = new ApprovalLedger(this.store); }
 
   public async idempotent<T>(ownerUserId: string, key: string, operation: string, request: unknown, execute: () => Promise<T>): Promise<T> {
+    await this.assertDeletionNotRunning(ownerUserId, request);
     const stateRevision = typeof request === 'object' && request !== null && 'revision' in request && typeof request.revision === 'number' ? request.revision : undefined;
     return this.idempotency.run({ ownerUserId, key, operation, request, execute, stateRevision });
+  }
+
+  private async assertDeletionNotRunning(ownerUserId: string, request: unknown): Promise<void> {
+    const deletions = await this.store.list?.< { scope?: string; targetId?: string | null; status?: string }>(ownerUserId, 'deletion_request') ?? [];
+    const contains = (value: unknown, target: string): boolean => {
+      if (typeof value === 'string') return value === target;
+      if (Array.isArray(value)) return value.some((item) => contains(item, target));
+      if (value && typeof value === 'object') return Object.values(value).some((item) => contains(item, target));
+      return false;
+    };
+    const blocked = deletions.some((entry) => {
+      const deletion = entry.value;
+      if (!['requested', 'running'].includes(String(deletion.status))) return false;
+      if (deletion.scope === 'account') return true;
+      return Boolean(deletion.targetId && contains(request, deletion.targetId));
+    });
+    if (blocked) throw new WorkflowServiceError('WORKFLOW_STATE_INVALID', 'A privacy deletion is in progress for this resource.', 409);
   }
 
   public async createRepairPlan(ownerUserId: string, baselineRunId: string, options: WorkflowMutationOptions = {}): Promise<RepairPlan> {
@@ -270,7 +288,7 @@ export class WorkflowService {
         applied = undefined;
       }
     }
-    const validation = applied ? await this.worker.validate((await this.baselineContext(ownerUserId, plan.baselineRunId)).context, applied) : { status: 'not_available' as const, checks: [{ id: 'repair-baseline', label: 'Repair baseline validation', status: 'not_available' as const, summary: 'No isolated repair workspace is available.' }] };
+     const validation = applied ? await this.worker.validate((await this.baselineContext(ownerUserId, plan.baselineRunId)).context, applied) : { status: 'not_available' as const, checks: [{ id: 'repair-baseline', label: 'Repair baseline validation', status: 'not_available' as const, summary: 'No isolated repair workspace is available.' }] };
     const receipt: ValidationReceipt = { validationId: randomUUID(), phase: 'repair', sourceRunId: plan.planId, status: validation.status, checks: validation.checks, baseCommit: plan.baseCommit, branchName: plan.branchName, createdAt: now() };
      plan.validationId = receipt.validationId;
      const nextStatus = validation.status === 'passed' ? 'validated' : validation.status === 'failed' ? 'failed' : 'blocked';
@@ -283,8 +301,12 @@ export class WorkflowService {
      plan.updatedAt = now();
      await this.saveRepair(plan);
      await this.store.saveVersioned(ownerUserId, 'validation', receipt.validationId, { ...receipt, revision: 1 });
-     if (checkpoint) await this.store.saveVersioned(ownerUserId, 'repair_checkpoint', plan.baselineRunId, { ...checkpoint, revision: 1 });
-    return { plan: publicRepairPlan(plan), receipt };
+      if (checkpoint) await this.store.saveVersioned(ownerUserId, 'repair_checkpoint', plan.baselineRunId, { ...checkpoint, revision: 1 });
+      if (applied) {
+        await this.worker.cleanup(applied).catch(() => undefined);
+        this.repairs.delete(plan.planId);
+      }
+     return { plan: publicRepairPlan(plan), receipt };
   }
 
   public async publishRepairBranch(ownerUserId: string, planId: string, accessToken: string, options: WorkflowMutationOptions = {}): Promise<RepairPlan> {
@@ -505,7 +527,11 @@ export class WorkflowService {
         enhancement.updatedAt = now();
         await this.saveEnhancement(enhancement);
       }
-      return { status: state.status, manifest: state.manifest, revision: state.revision ?? 0, warning: state.warning };
+       if (state.status === 'failed') {
+         const applied = this.versionWorkspaces.get(version2RunId);
+         if (applied) { await this.worker.cleanup(applied).catch(() => undefined); this.versionWorkspaces.delete(version2RunId); }
+       }
+       return { status: state.status, manifest: state.manifest, revision: state.revision ?? 0, warning: state.warning };
     });
   }
 
@@ -559,12 +585,14 @@ export class WorkflowService {
     const enhancement = await this.requireEnhancement(ownerUserId, state.enhancementRunId, options.sessionId);
     const context = await this.baselineContext(ownerUserId, enhancement.baselineRunId);
     const receipt: PullRequestReceipt = { pullRequestId: randomUUID(), version2RunId, owner: context.context.snapshot.repository.owner, repository: context.context.snapshot.repository.name, branchName: state.manifest?.targetBranch ?? `ai/enhancement/${version2RunId}`, title: `Obsidian Version 2: ${version2RunId}`, body: 'This pull request was prepared from an approved Obsidian change manifest. Review the exact diff and validation receipt before merging.', url: null, status: 'prepared', createdAt: now(), manifestHash: state.manifest?.diffHash ?? null, revision: (state.revision ?? 0) + 1, deliveryStep: 'prepared' };
-    state.receipt = receipt;
-    state.deliveryStep = 'prepared';
-    state.revision = nextRevision(state);
-    await this.saveVersion2(ownerUserId, version2RunId, state);
-    await this.store.save(ownerUserId, 'pull_request', receipt.pullRequestId, receipt);
-    return receipt;
+     state.receipt = receipt;
+     state.deliveryStep = 'prepared';
+     state.revision = nextRevision(state);
+     await this.saveVersion2(ownerUserId, version2RunId, state);
+     await this.store.save(ownerUserId, 'pull_request', receipt.pullRequestId, receipt);
+     const applied = this.versionWorkspaces.get(version2RunId);
+     if (applied) { await this.worker.cleanup(applied).catch(() => undefined); this.versionWorkspaces.delete(version2RunId); }
+     return receipt;
   }
 
   public async validateVersion2(ownerUserId: string, version2RunId: string, options: WorkflowMutationOptions = {}): Promise<{ status: Version2Status; manifest: ChangeManifest; receipt: ValidationReceipt }> {
@@ -601,15 +629,19 @@ export class WorkflowService {
     this.versions.set(version2RunId, state);
     await this.saveVersion2(ownerUserId, version2RunId, state);
     await this.store.save(ownerUserId, 'validation', receipt.validationId, receipt);
-    if (validation.status === 'passed' || validation.status === 'failed') {
+     if (validation.status === 'passed' || validation.status === 'failed') {
        const nextEnhancementStatus = validation.status === 'passed' ? 'validated' : 'failed';
        requireWorkflowTransition(enhancement.status, nextEnhancementStatus);
        enhancement.status = nextEnhancementStatus;
       enhancement.revision = nextRevision(enhancement);
       enhancement.updatedAt = now();
-      await this.saveEnhancement(enhancement);
-    }
-    return { status: state.status, manifest: state.manifest, receipt };
+       await this.saveEnhancement(enhancement);
+     }
+     if (validation.status !== 'passed' && applied) {
+       await this.worker.cleanup(applied).catch(() => undefined);
+       this.versionWorkspaces.delete(version2RunId);
+     }
+     return { status: state.status, manifest: state.manifest, receipt };
   }
 
   public async cancelVersion2(ownerUserId: string, version2RunId: string, options: WorkflowMutationOptions = {}): Promise<{ status: Version2Status; revision: number }> {
@@ -630,6 +662,8 @@ export class WorkflowService {
     enhancement.revision = nextRevision(enhancement);
     enhancement.updatedAt = now();
     await this.saveEnhancement(enhancement);
+    const applied = this.versionWorkspaces.get(version2RunId);
+    if (applied) { await this.worker.cleanup(applied).catch(() => undefined); this.versionWorkspaces.delete(version2RunId); }
     return { status: state.status, revision: state.revision };
   }
 

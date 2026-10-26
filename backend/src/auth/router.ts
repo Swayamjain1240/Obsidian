@@ -67,7 +67,7 @@ export function createAuthRouter(
       const secure = config.NODE_ENV === 'production' ? '; Secure' : '';
       response.append(
         'Set-Cookie',
-        `obsidian_session=${signedSession}; Max-Age=28800; Path=/; HttpOnly; SameSite=Lax${secure}`,
+         `obsidian_session=${signedSession}; Max-Age=${Math.floor(config.AUTH_SESSION_TTL_MS / 1000)}; Path=/; HttpOnly; SameSite=Lax${secure}`,
       );
       response.append(
         'Set-Cookie',

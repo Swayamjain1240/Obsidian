@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { AuthSessionModel } from '../db/models.js';
 import { getDatabaseStatus } from '../db/connection.js';
+import { decryptText, encryptText, type EncryptionKeyring } from '../privacy/encryption.js';
 
 export interface GithubSession {
   sessionId: string;
@@ -20,7 +21,7 @@ export class SessionPersistenceError extends Error {
 export class SessionStore {
   private readonly sessions = new Map<string, GithubSession>();
 
-  constructor(private readonly secret: string, private readonly ttlMs = 8 * 60 * 60 * 1000, private readonly maxSessions = 10_000, private readonly requirePersistence = false) {}
+  constructor(private readonly secret: string, private readonly ttlMs = 8 * 60 * 60 * 1000, private readonly maxSessions = 10_000, private readonly requirePersistence = false, private readonly encryptionKeyring?: EncryptionKeyring) {}
 
   create(input: Omit<GithubSession, 'sessionId' | 'expiresAt'>): string {
     for (const [key, session] of this.sessions) if (session.expiresAt <= Date.now()) this.sessions.delete(key);
@@ -72,23 +73,25 @@ export class SessionStore {
     const sessionId = this.verify(signedSessionId);
     if (!sessionId) return null;
     if (getDatabaseStatus() !== 'connected') return this.requirePersistence ? null : this.get(signedSessionId);
+    let persistedKeyId: string | undefined;
     try {
       const record = await AuthSessionModel.findOne({ sessionId }).lean().exec();
       if (!record || new Date(record.expiresAt).getTime() <= Date.now()) {
         this.sessions.delete(sessionId);
         return null;
       }
+      persistedKeyId = record.accessTokenKeyId ?? undefined;
       const session: GithubSession = {
         sessionId,
         githubUserId: record.githubUserId,
         githubLogin: record.githubLogin,
-        accessToken: this.decrypt(record.accessTokenCiphertext, record.accessTokenIv, record.accessTokenTag),
+        accessToken: this.decrypt(record.accessTokenCiphertext, record.accessTokenIv, record.accessTokenTag, record.accessTokenKeyId ?? undefined),
         expiresAt: new Date(record.expiresAt).getTime(),
       };
       this.sessions.set(sessionId, session);
       return session;
     } catch {
-      return this.requirePersistence ? null : this.get(signedSessionId);
+      return this.requirePersistence || Boolean(this.encryptionKeyring) || Boolean(persistedKeyId) ? null : this.get(signedSessionId);
     }
   }
 
@@ -105,16 +108,34 @@ export class SessionStore {
     try { await AuthSessionModel.deleteOne({ sessionId }).exec(); } catch { /* logout remains locally complete */ }
   }
 
+  async deleteUserAsync(githubUserId: number): Promise<void> {
+    this.sessions.forEach((session, key) => { if (session.githubUserId === githubUserId) this.sessions.delete(key); });
+    if (getDatabaseStatus() !== 'connected') {
+      if (this.requirePersistence) throw new SessionPersistenceError();
+      return;
+    }
+    try { await AuthSessionModel.deleteMany({ githubUserId }, { writeConcern: { w: 'majority', j: true } }).exec(); }
+    catch (reason: unknown) { if (this.requirePersistence) throw new SessionPersistenceError(reason instanceof Error ? reason.message : undefined); }
+  }
+
   private key(): Buffer { return createHash('sha256').update(this.secret).digest(); }
 
-  private encrypt(value: string): { accessTokenCiphertext: string; accessTokenIv: string; accessTokenTag: string } {
+  private encrypt(value: string): { accessTokenCiphertext: string; accessTokenIv: string; accessTokenTag: string; accessTokenKeyId?: string } {
+    if (this.encryptionKeyring) {
+      const envelope = encryptText(value, this.encryptionKeyring);
+      return { accessTokenCiphertext: envelope.ciphertext, accessTokenIv: envelope.iv, accessTokenTag: envelope.tag, accessTokenKeyId: envelope.keyId };
+    }
     const iv = randomBytes(12);
     const cipher = createCipheriv('aes-256-gcm', this.key(), iv);
     const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
     return { accessTokenCiphertext: ciphertext.toString('base64url'), accessTokenIv: iv.toString('base64url'), accessTokenTag: cipher.getAuthTag().toString('base64url') };
   }
 
-  private decrypt(ciphertext: string, iv: string, tag: string): string {
+  private decrypt(ciphertext: string, iv: string, tag: string, keyId?: string): string {
+    if (this.encryptionKeyring || keyId) {
+      if (!this.encryptionKeyring || !keyId) throw new Error('Session encryption key configuration is unavailable.');
+      return decryptText({ version: 1, algorithm: 'aes-256-gcm', keyId, iv, tag, ciphertext }, this.encryptionKeyring);
+    }
     const decipher = createDecipheriv('aes-256-gcm', this.key(), Buffer.from(iv, 'base64url'));
     decipher.setAuthTag(Buffer.from(tag, 'base64url'));
     return Buffer.concat([decipher.update(Buffer.from(ciphertext, 'base64url')), decipher.final()]).toString('utf8');

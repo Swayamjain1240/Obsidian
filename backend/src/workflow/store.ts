@@ -7,12 +7,23 @@ function cloneValue<T>(value: T): T {
   return structuredClone(value);
 }
 
-export type WorkflowStateKind = 'workflow_aggregate' | 'repair_plan' | 'enhancement_run' | 'version_2_run' | 'validation' | 'pull_request' | 'repair_checkpoint' | 'approval_receipt' | 'recommendation_review' | 'idempotency' | 'diff' | 'repository_selection' | 'snapshot_handle' | 'delivery_step';
+export type WorkflowStateKind = 'workflow_aggregate' | 'repair_plan' | 'enhancement_run' | 'version_2_run' | 'validation' | 'pull_request' | 'repair_checkpoint' | 'approval_receipt' | 'recommendation_review' | 'idempotency' | 'diff' | 'repository_selection' | 'snapshot_handle' | 'delivery_step' | 'deletion_request' | 'privacy_cleanup';
 
 export interface VersionedWorkflowValue {
   schemaVersion?: number;
   revision?: number;
   updatedAt?: string;
+}
+
+export interface WorkflowPageCursor {
+  dueAt: number;
+  createdAt: string;
+  id: string;
+}
+
+export interface WorkflowPage<T> {
+  entries: Array<{ id: string; value: T }>;
+  nextCursor?: WorkflowPageCursor;
 }
 
 export class WorkflowPersistenceError extends Error {
@@ -34,6 +45,11 @@ export interface WorkflowStore {
   get<T>(ownerUserId: string, kind: WorkflowStateKind, id: string): Promise<T | null>;
   getVersioned<T extends VersionedWorkflowValue>(ownerUserId: string, kind: WorkflowStateKind, id: string): Promise<T | null>;
   saveVersioned<T extends VersionedWorkflowValue>(ownerUserId: string, kind: WorkflowStateKind, id: string, value: T, expectedRevision?: number): Promise<T>;
+  list?<T>(ownerUserId: string, kind: WorkflowStateKind): Promise<Array<{ id: string; value: T }>>;
+  listAll?<T>(kind: WorkflowStateKind): Promise<Array<{ ownerUserId: string; id: string; value: T }>>;
+  listCleanupTasksPage<T>(ownerUserId: string, dueAt: number, limit: number, cursor?: WorkflowPageCursor): Promise<WorkflowPage<T>>;
+  listCleanupTaskOwners(dueAt: number): Promise<string[]>;
+  delete?(ownerUserId: string, kind: WorkflowStateKind, id: string): Promise<void>;
   assertWritable?(): void;
 }
 
@@ -164,6 +180,161 @@ export class DurableWorkflowStore implements WorkflowStore {
       if (this.requirePersistence) throw new WorkflowPersistenceError(reason instanceof Error ? reason.message : undefined);
       return null;
     }
+  }
+
+  public async list<T>(ownerUserId: string, kind: WorkflowStateKind): Promise<Array<{ id: string; value: T }>> {
+    if (getDatabaseStatus() !== 'connected') {
+      if (this.requirePersistence) throw new WorkflowPersistenceError();
+      const prefix = `${ownerUserId}:${kind}:`;
+      return [...this.cache.entries()]
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([key, value]) => ({ id: key.slice(prefix.length), value: cloneValue(value as T) }));
+    }
+    try {
+      const records = await WorkflowStateModel.find({ ownerUserId, kind }).read('primary').lean().exec();
+      return records.map((record) => ({ id: String(record.stateId), value: cloneValue(record.payload as T) }));
+    } catch (reason: unknown) {
+      if (this.requirePersistence) throw new WorkflowPersistenceError(reason instanceof Error ? reason.message : undefined);
+      return [];
+    }
+  }
+
+  public async listAll<T>(kind: WorkflowStateKind): Promise<Array<{ ownerUserId: string; id: string; value: T }>> {
+    if (getDatabaseStatus() !== 'connected') {
+      if (this.requirePersistence) throw new WorkflowPersistenceError();
+      return [...this.cache.entries()]
+        .filter(([key]) => key.split(':')[1] === kind)
+        .map(([key, value]) => {
+          const parts = key.split(':');
+          return { ownerUserId: parts[0], id: parts.slice(2).join(':'), value: cloneValue(value as T) };
+        });
+    }
+    try {
+      const records = await WorkflowStateModel.find({ kind }).read('primary').lean().exec();
+      return records.map((record) => ({ ownerUserId: String(record.ownerUserId), id: String(record.stateId), value: cloneValue(record.payload as T) }));
+    } catch (reason: unknown) {
+      if (this.requirePersistence) throw new WorkflowPersistenceError(reason instanceof Error ? reason.message : undefined);
+      return [];
+    }
+  }
+
+  public async listCleanupTasksPage<T>(ownerUserId: string, dueAt: number, limit: number, cursor?: WorkflowPageCursor): Promise<WorkflowPage<T>> {
+    const boundedLimit = Math.max(1, Math.min(1_000, Math.floor(limit)));
+    if (getDatabaseStatus() !== 'connected') {
+      if (this.requirePersistence) throw new WorkflowPersistenceError();
+      const prefix = `${ownerUserId}:privacy_cleanup:`;
+      const records = [...this.cache.entries()]
+        .filter(([key, value]) => {
+          const task = value as { dueAt?: unknown; status?: unknown; nextAttemptAt?: unknown; claimExpiresAt?: unknown };
+          const retryDue = task.nextAttemptAt === undefined || Number(task.nextAttemptAt) <= dueAt;
+          const claimDue = task.status !== 'running' || task.claimExpiresAt === undefined || Number(task.claimExpiresAt) <= dueAt;
+          return key.startsWith(prefix) && Number(task.dueAt) <= dueAt && task.status !== 'completed' && retryDue && claimDue;
+        })
+        .map(([key, value]) => ({ id: key.slice(prefix.length), value: cloneValue(value as T) }))
+        .sort((left, right) => {
+          const leftValue = left.value as T & { dueAt: number; createdAt: string };
+          const rightValue = right.value as T & { dueAt: number; createdAt: string };
+          return leftValue.dueAt - rightValue.dueAt || leftValue.createdAt.localeCompare(rightValue.createdAt) || left.id.localeCompare(right.id);
+        });
+      const afterCursor = cursor ? records.findIndex((entry) => {
+        const value = entry.value as T & { dueAt: number; createdAt: string };
+        return value.dueAt > cursor.dueAt || (value.dueAt === cursor.dueAt && (value.createdAt > cursor.createdAt || (value.createdAt === cursor.createdAt && entry.id > cursor.id)));
+      }) : 0;
+      const start = afterCursor < 0 ? records.length : afterCursor;
+      const page = records.slice(start, start + boundedLimit);
+      const last = page.at(-1);
+      const hasMore = start + page.length < records.length;
+      return {
+        entries: page,
+        nextCursor: hasMore && last ? { dueAt: Number((last.value as { dueAt: number }).dueAt), createdAt: String((last.value as { createdAt: string }).createdAt), id: last.id } : undefined,
+      };
+    }
+    try {
+      const conditions: Array<Record<string, unknown>> = [
+        { 'payload.dueAt': { $lte: dueAt } },
+        { 'payload.status': { $ne: 'completed' } },
+        { $or: [
+          { 'payload.nextAttemptAt': { $exists: false } },
+          { 'payload.nextAttemptAt': { $lte: dueAt } },
+        ] },
+        { $or: [
+          { 'payload.status': { $in: ['scheduled', 'failed'] } },
+          { 'payload.status': 'running', 'payload.claimExpiresAt': { $lte: dueAt } },
+        ] },
+      ];
+      if (cursor) {
+        conditions.push({ $or: [
+          { 'payload.dueAt': { $gt: cursor.dueAt, $lte: dueAt } },
+          { 'payload.dueAt': cursor.dueAt, 'payload.createdAt': { $gt: cursor.createdAt } },
+          { 'payload.dueAt': cursor.dueAt, 'payload.createdAt': cursor.createdAt, stateId: { $gt: cursor.id } },
+        ] });
+      }
+      const filter: Record<string, unknown> = { ownerUserId, kind: 'privacy_cleanup', $and: conditions };
+      const records = await WorkflowStateModel.find(filter)
+        .sort({ 'payload.dueAt': 1, 'payload.createdAt': 1, stateId: 1 })
+        .limit(boundedLimit)
+        .read('primary')
+        .lean()
+        .exec();
+      const pageRecords = records.map((record) => ({ id: String(record.stateId), value: cloneValue(record.payload as T) }));
+      return {
+        entries: pageRecords,
+        nextCursor: undefined,
+      };
+    } catch (reason: unknown) {
+      if (this.requirePersistence) throw new WorkflowPersistenceError(reason instanceof Error ? reason.message : undefined);
+      return { entries: [] };
+    }
+  }
+
+  public async listCleanupTaskOwners(dueAt: number): Promise<string[]> {
+    if (getDatabaseStatus() !== 'connected') {
+      if (this.requirePersistence) throw new WorkflowPersistenceError();
+      const owners = new Set<string>();
+      for (const [key, value] of this.cache.entries()) {
+        if (!key.includes(':privacy_cleanup:')) continue;
+        const task = value as { dueAt?: unknown; status?: unknown; nextAttemptAt?: unknown; claimExpiresAt?: unknown };
+        const retryDue = task.nextAttemptAt === undefined || Number(task.nextAttemptAt) <= dueAt;
+        const claimDue = task.status !== 'running' || task.claimExpiresAt === undefined || Number(task.claimExpiresAt) <= dueAt;
+        if (Number(task.dueAt) <= dueAt && task.status !== 'completed' && retryDue && claimDue) owners.add(key.split(':')[0]);
+      }
+      return [...owners];
+    }
+    try {
+      return (await WorkflowStateModel.distinct('ownerUserId', {
+        kind: 'privacy_cleanup',
+        'payload.dueAt': { $lte: dueAt },
+        'payload.status': { $ne: 'completed' },
+        $or: [
+          { 'payload.nextAttemptAt': { $exists: false } },
+          { 'payload.nextAttemptAt': { $lte: dueAt } },
+        ],
+        $and: [{
+          $or: [
+            { 'payload.status': { $in: ['scheduled', 'failed'] } },
+            { 'payload.status': 'running', 'payload.claimExpiresAt': { $lte: dueAt } },
+          ],
+        }],
+      }).exec()).map(String);
+    } catch (reason: unknown) {
+      if (this.requirePersistence) throw new WorkflowPersistenceError(reason instanceof Error ? reason.message : undefined);
+      return [];
+    }
+  }
+
+  public async delete(ownerUserId: string, kind: WorkflowStateKind, id: string): Promise<void> {
+    this.assertWritable();
+    const key = `${ownerUserId}:${kind}:${id}`;
+    if (getDatabaseStatus() === 'connected') {
+      try {
+        await WorkflowStateModel.deleteOne({ ownerUserId, kind, stateId: id }, { writeConcern: { w: 'majority', j: true } }).exec();
+      } catch (reason: unknown) {
+        throw new WorkflowPersistenceError(reason instanceof Error ? reason.message : undefined);
+      }
+    } else if (this.requirePersistence) {
+      throw new WorkflowPersistenceError();
+    }
+    this.cache.delete(key);
   }
 
   public persistenceHealth(): { pendingErrors: number } {

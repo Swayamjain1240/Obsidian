@@ -12,6 +12,8 @@ import { requireSameOrigin } from '../security.js';
 import { SnapshotHandleStore } from './handle-store.js';
 import { RepositorySelectionStore } from './repository-authorization.js';
 import { WorkflowPersistenceError } from '../workflow/store.js';
+import { PrivacyRetentionService } from '../privacy/retention-service.js';
+import path from 'node:path';
 
 const repositorySchema = z.object({
   owner: z.string().regex(/^[A-Za-z0-9_.-]+$/).max(100),
@@ -25,6 +27,7 @@ export function createIntakeRouter(
   intakeService?: RepositoryIntakeService,
   handleStore = new SnapshotHandleStore(),
   selectionStore = new RepositorySelectionStore(),
+  retention?: PrivacyRetentionService,
 ) {
   const router = Router();
   const intake = intakeService ?? new RepositoryIntakeService(new SnapshotStore(config.SNAPSHOT_ROOT, config.SNAPSHOT_MAX_BYTES));
@@ -48,11 +51,14 @@ export function createIntakeRouter(
        }
        const result = await intake.createSnapshot(new GithubApiClient(session.accessToken), parsed.data);
        const snapshotHandle = handleStore.create(userId, result.snapshot, Date.now(), session.sessionId);
-       try {
-         await handleStore.persist(userId, snapshotHandle);
+        try {
+          await handleStore.persist(userId, snapshotHandle);
        } catch {
          response.status(503).json(errorBody('INTERNAL_ERROR', 'The snapshot handle could not be durably recorded.', response.locals.requestId as string));
-         return;
+          return;
+        }
+       if (retention) {
+         await retention.schedule({ ownerUserId: userId, category: 'snapshot', resourceId: result.snapshot.snapshotId, root: config.SNAPSHOT_ROOT, target: path.dirname(result.snapshot.archivePath), terminalAt: Date.now() });
        }
       response.status(201).json({
         intake: {

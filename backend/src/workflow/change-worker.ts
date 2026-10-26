@@ -12,6 +12,7 @@ import type { ChangeOperation } from './types.js';
 import type { RepositoryCommandExecutor } from '../workers/executor.js';
 import { DockerBrokerExecutor } from '../workers/docker-broker.js';
 import { InMemoryWorkerLeaseStore, MongoWorkerLeaseStore } from '../workers/lease-store.js';
+import { removeContained, type CleanupReceipt } from '../privacy/cleanup.js';
 
 export interface AppliedWorkspace {
   workspacePath: string;
@@ -127,5 +128,9 @@ export class ChangeWorker {
     }
     const status = checks.some((check) => check.status === 'failed') ? 'failed' : checks.some((check) => check.status === 'not_available') ? 'not_available' : 'passed';
     return { status, checks };
+  }
+
+  public async cleanup(applied: AppliedWorkspace): Promise<CleanupReceipt> {
+    return removeContained(path.resolve(this.config.SNAPSHOT_ROOT, 'workflow-changes'), path.dirname(applied.workspacePath), `workspace:${path.dirname(applied.workspacePath)}`);
   }
 }

@@ -20,6 +20,11 @@ export interface DurableRunEnvelope<T, C = unknown> {
   updatedAt: string;
 }
 
+export interface DurableRunRecord {
+  runId: string;
+  payload: unknown;
+}
+
 export class DurableRunPersistenceError extends Error {
   public constructor(message = 'Run state could not be durably persisted.') {
     super(message);
@@ -75,6 +80,69 @@ export class DurableRunStore {
     } catch (reason) {
       if (this.requirePersistence) throw reason instanceof DurableRunPersistenceError ? reason : new DurableRunPersistenceError(reason instanceof Error ? reason.message : undefined);
       return null;
+    }
+  }
+
+  public async list(ownerUserId: string): Promise<DurableRunRecord[]> {
+    const prefix = `${ownerUserId}:`;
+    if (getDatabaseStatus() !== 'connected') {
+      if (this.requirePersistence) throw new DurableRunPersistenceError();
+      return [...this.cache.entries()]
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([key, payload]) => ({ runId: key.slice(prefix.length), payload: cloneValue(payload) }));
+    }
+    try {
+      const records = await DurableRunStateModel.find({ ownerUserId }).read('primary').lean().exec();
+      return records.map((record) => ({ runId: String(record.runId), payload: cloneValue(record.payload) }));
+    } catch (reason: unknown) {
+      throw new DurableRunPersistenceError(reason instanceof Error ? reason.message : undefined);
+    }
+  }
+
+  public async delete(ownerUserId: string, runId: string): Promise<void> {
+    this.assertWritable();
+    const key = `${ownerUserId}:${runId}`;
+    if (getDatabaseStatus() !== 'connected') {
+      if (this.requirePersistence) throw new DurableRunPersistenceError();
+      this.cache.delete(key);
+      return;
+    }
+    try {
+      await DurableRunStateModel.deleteOne({ ownerUserId, runId }, { writeConcern: { w: 'majority', j: true } }).exec();
+      this.cache.delete(key);
+    } catch (reason: unknown) {
+      throw new DurableRunPersistenceError(reason instanceof Error ? reason.message : undefined);
+    }
+  }
+
+  public async deleteExpired(cutoff: number, limit: number): Promise<number> {
+    this.assertWritable();
+    const boundedLimit = Math.max(1, Math.min(1_000, Math.floor(limit)));
+    const terminalStatuses = new Set(['passed', 'failed', 'partial', 'cancelled']);
+    if (getDatabaseStatus() !== 'connected') {
+      if (this.requirePersistence) throw new DurableRunPersistenceError();
+      const expired = [...this.cache.entries()]
+        .filter(([, value]) => {
+          const envelope = value as { updatedAt?: unknown; result?: { status?: unknown } };
+          return typeof envelope.updatedAt === 'string'
+            && Date.parse(envelope.updatedAt) <= cutoff
+            && terminalStatuses.has(String(envelope.result?.status));
+        })
+        .slice(0, boundedLimit);
+      for (const [key] of expired) this.cache.delete(key);
+      return expired.length;
+    }
+    try {
+      const records = await DurableRunStateModel.find({
+        updatedAt: { $lte: new Date(cutoff) },
+        'payload.result.status': { $in: [...terminalStatuses] },
+      }).select({ ownerUserId: 1, runId: 1 }).sort({ updatedAt: 1 }).limit(boundedLimit).lean().exec();
+      if (!records.length) return 0;
+      const result = await DurableRunStateModel.deleteMany({ _id: { $in: records.map((record) => record._id) } }, { writeConcern: { w: 'majority', j: true } }).exec();
+      for (const record of records) this.cache.delete(`${record.ownerUserId}:${record.runId}`);
+      return result.deletedCount ?? 0;
+    } catch (reason: unknown) {
+      throw new DurableRunPersistenceError(reason instanceof Error ? reason.message : undefined);
     }
   }
 
