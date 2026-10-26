@@ -8,4 +8,8 @@ describe('durable audit event policy', () => {
     const event = createSystemEvent({ eventType: 'TEST', sessionId: 'session', projectId: 'project', runId: 'run', baseCommit: 'a'.repeat(40), phase: 'test', status: 'passed', safeSummary: 'safe', affectedPaths: [], userActionRequired: false });
     await expect(new DurableEventStore(true).append(event)).rejects.toBeInstanceOf(EventPersistenceError);
   });
+
+  it('requires an explicit approved policy before audit retention purge', async () => {
+    await expect(new DurableEventStore(false).purgeBefore(new Date(), false)).rejects.toBeInstanceOf(EventPersistenceError);
+  });
 });

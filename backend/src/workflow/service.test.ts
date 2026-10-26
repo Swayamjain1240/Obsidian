@@ -190,4 +190,40 @@ describe('workflow approval integrity', () => {
 
     await expect(workflow.getRepairPlan('7', 'legacy-plan', 'new-session')).rejects.toMatchObject<WorkflowServiceError>({ code: 'WORKFLOW_NOT_FOUND' });
   });
+
+  it('records workflow events through a successful sink without delaying the operation', async () => {
+    const value = fixture();
+    const persisted: string[] = [];
+    const workflow = new WorkflowService(config, value.baseline, value.completeness, new DurableWorkflowStore(), async (event) => {
+      persisted.push(event.eventType);
+    });
+
+    const plan = await workflow.createRepairPlan('7', 'workflow-baseline');
+
+    expect(persisted).toEqual(['REPAIR_PLAN_CREATED']);
+    expect(workflow.listEvents('workflow-session', plan.planId)).toHaveLength(1);
+  });
+
+  it('continues the workflow operation when the event sink rejects and records the local event', async () => {
+    const value = fixture();
+    let sinkInvoked = false;
+    let sinkRejected = false;
+    const workflow = new WorkflowService(config, value.baseline, value.completeness, new DurableWorkflowStore(), async () => {
+      sinkInvoked = true;
+      try {
+        throw new Error('required audit persistence unavailable');
+      } catch (error) {
+        sinkRejected = true;
+        throw error;
+      }
+    });
+
+    const plan = await workflow.createRepairPlan('7', 'workflow-baseline');
+    await Promise.resolve();
+
+    expect(plan.items).toHaveLength(3);
+    expect(sinkInvoked).toBe(true);
+    expect(sinkRejected).toBe(true);
+    expect(workflow.listEvents('workflow-session', plan.planId)).toHaveLength(1);
+  });
 });
