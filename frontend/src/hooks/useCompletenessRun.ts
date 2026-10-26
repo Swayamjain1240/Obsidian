@@ -32,6 +32,7 @@ export function useCompletenessRun({ detectionRunId, runId, onRunIdChange }: Use
   const active = useRef<Operation | null>(null);
   const mounted = useRef(false);
   const ownedRoute = useRef<string | null>(null);
+  const previousRoute = useRef<string | null | undefined>(undefined);
   const latest = useRef({ detectionRunId, runId, onRunIdChange, run });
   latest.current = { detectionRunId, runId, onRunIdChange, run };
 
@@ -57,16 +58,16 @@ export function useCompletenessRun({ detectionRunId, runId, onRunIdChange }: Use
         if ((kind === 'read' || kind === 'scope' || kind === 'cancel') && response.run.runId !== targetId) throw new Error('The backend returned a different completeness run. Reload this run to continue.');
         let result = response.run;
         setRun(result);
-        if (kind === 'start') {
-          ownedRoute.current = result.runId;
-          latest.current.onRunIdChange?.(result.runId);
-        }
         if (!isTerminalCompletenessStatus(result.status) && result.status !== 'awaiting_scope') {
           setPhase('scanning');
           result = (await pollCompleteness(result.runId, { signal, onUpdate: (next) => { if (current(operation)) setRun(next); } })).run;
         }
         if (!current(operation)) return;
         setRun(result);
+        if (kind === 'start') {
+          ownedRoute.current = result.runId;
+          latest.current.onRunIdChange?.(result.runId);
+        }
         setPhase(result.status === 'awaiting_scope' || result.status === 'scope_selected' ? 'ready' : 'terminal');
       } catch (reason: unknown) {
         if (!current(operation)) return;
@@ -89,6 +90,13 @@ export function useCompletenessRun({ detectionRunId, runId, onRunIdChange }: Use
   }, []);
 
   useEffect(() => {
+    const initialRoute = previousRoute.current === undefined;
+    if (!initialRoute && previousRoute.current === runId) return;
+    previousRoute.current = runId;
+    if (initialRoute) {
+      if (runId) execute('read', runId);
+      return;
+    }
     if (runId && ownedRoute.current === runId) { ownedRoute.current = null; return; }
     active.current?.controller.abort();
     active.current = null;

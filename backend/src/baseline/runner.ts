@@ -128,22 +128,26 @@ export function runBaselineCommand(command: BaselineCommandSpec, options: Baseli
     };
     child.stdout?.on('data', consume);
     child.stderr?.on('data', consume);
-    const timer = setTimeout(() => {
-      timedOut = true;
-      terminateProcess(child);
-    }, options.timeoutMs);
+    let timer: NodeJS.Timeout | undefined;
+    const startTimeout = (): void => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        terminateProcess(child);
+      }, options.timeoutMs);
+    };
+    child.once('spawn', startTimeout);
     const onAbort = (): void => {
       cancelled = true;
       terminateProcess(child);
     };
     options.signal.addEventListener('abort', onAbort, { once: true });
     child.once('error', (error: NodeJS.ErrnoException) => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       options.signal.removeEventListener('abort', onAbort);
       finish(error.code === 'ENOENT' ? 'not_available' : 'failed', null);
     });
     child.once('close', (code) => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       options.signal.removeEventListener('abort', onAbort);
       if (cancelled || options.signal.aborted) finish('cancelled', code);
       else if (timedOut) finish('timed_out', code);

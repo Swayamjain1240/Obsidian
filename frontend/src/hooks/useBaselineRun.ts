@@ -30,6 +30,7 @@ export function useBaselineRun({ completenessRunId, runId, onRunIdChange }: UseB
   const active = useRef<Operation | null>(null);
   const mounted = useRef(false);
   const ownedRoute = useRef<string | null>(null);
+  const previousRoute = useRef<string | null | undefined>(undefined);
   const latest = useRef({ completenessRunId, runId, onRunIdChange, run });
   latest.current = { completenessRunId, runId, onRunIdChange, run };
 
@@ -54,16 +55,16 @@ export function useBaselineRun({ completenessRunId, runId, onRunIdChange }: UseB
         if ((kind === 'read' || kind === 'cancel') && response.run.runId !== targetId) throw new Error('The backend returned a different baseline run. Reload this run to continue.');
         let result = response.run;
         setRun(result);
-        if (kind === 'start') {
-          ownedRoute.current = result.runId;
-          latest.current.onRunIdChange?.(result.runId);
-        }
         if (!isTerminalBaselineStatus(result.status)) {
           setPhase(result.status === 'running' ? 'running' : 'planning');
           result = (await pollBaseline(result.runId, { signal, onUpdate: (next) => { if (current(operation)) setRun(next); } })).run;
         }
         if (!current(operation)) return;
         setRun(result);
+        if (kind === 'start') {
+          ownedRoute.current = result.runId;
+          latest.current.onRunIdChange?.(result.runId);
+        }
         setPhase('terminal');
       } catch (reason: unknown) {
         if (!current(operation)) return;
@@ -86,6 +87,13 @@ export function useBaselineRun({ completenessRunId, runId, onRunIdChange }: UseB
   }, []);
 
   useEffect(() => {
+    const initialRoute = previousRoute.current === undefined;
+    if (!initialRoute && previousRoute.current === runId) return;
+    previousRoute.current = runId;
+    if (initialRoute) {
+      if (runId) execute('read', runId);
+      return;
+    }
     if (runId && ownedRoute.current === runId) { ownedRoute.current = null; return; }
     if (active.current?.kind === 'start' && ownedRoute.current) return;
     active.current?.controller.abort();
