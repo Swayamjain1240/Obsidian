@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { useEffect, useRef, type ReactNode } from 'react';
+import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 
 import { CrystalCanvas } from './components/CrystalCanvas';
 import { useAuthSession, type AuthSessionState } from './hooks/useAuthSession';
@@ -14,16 +14,16 @@ import { RepositoryPage } from './pages/RepositoryPage';
 import { summary } from './components/PagedText';
 
 const phases = [
-  { path: '/home', label: 'Home', shortLabel: 'Home' },
-  { path: '/project/select', label: 'Repository', shortLabel: '1 · Repository' },
-  { path: '/project/detect', label: 'Detection', shortLabel: '2 · Detection' },
-  { path: '/project/confirm', label: 'Confirmation', shortLabel: '3 · Confirmation' },
-  { path: '/project/completeness', label: 'Completeness', shortLabel: '4 · Completeness' },
-  { path: '/project/baseline', label: 'Baseline', shortLabel: '5 · Baseline' },
-  { path: '/project/repair', label: 'Repair review', shortLabel: '6 · Repair' },
-  { path: '/project/enhance', label: 'Enhancements', shortLabel: '7 · Enhance' },
-  { path: '/project/delivery', label: 'Version 2', shortLabel: '8 · Version 2' },
-  { path: '/health', label: 'Health · future', shortLabel: '9 · Health · future' },
+  { path: '/home', label: 'Home', step: '•' },
+  { path: '/project/select', label: 'Repository', step: '1' },
+  { path: '/project/detect', label: 'Detection', step: '2' },
+  { path: '/project/confirm', label: 'Confirmation', step: '3' },
+  { path: '/project/completeness', label: 'Completeness', step: '4' },
+  { path: '/project/baseline', label: 'Baseline', step: '5' },
+  { path: '/project/repair', label: 'Repair review', step: '6' },
+  { path: '/project/enhance', label: 'Enhancements', step: '7' },
+  { path: '/project/delivery', label: 'Version 2', step: '8' },
+  { path: '/health', label: 'Health · future', step: '+' },
 ];
 
 function ProtectedRoute({ session, children }: { session: AuthSessionState; children: ReactNode }) {
@@ -41,32 +41,45 @@ function ProtectedRoute({ session, children }: { session: AuthSessionState; chil
   return <>{children}</>;
 }
 
-function WizardNavigation({ mobile = false }: { mobile?: boolean }) {
+/**
+ * One navigation rendered for every viewport: a labelled sidebar when there is
+ * room, and the same links as a horizontally scrollable step rail when there is
+ * not. Both keep every phase reachable in one tap, so nothing hides behind a
+ * menu or a dropdown.
+ */
+function PhaseNavigation() {
   const location = useLocation();
-  const navigate = useNavigate();
-  const currentPath = phases.find((phase) => location.pathname === phase.path)?.path ?? '/home';
+  const activeRef = useRef<HTMLAnchorElement | null>(null);
+  const activePath = phases.find((phase) => location.pathname === phase.path)?.path ?? '/home';
 
-  return mobile ? (
-    <div className="mobile-nav">
-      <label className="sr-only" htmlFor="wizard-step">Wizard step</label>
-      <select id="wizard-step" value={currentPath} onChange={(event) => navigate(event.target.value)}>
-        {phases.map((phase) => <option value={phase.path} key={phase.path}>{phase.shortLabel}</option>)}
-      </select>
-    </div>
-  ) : (
-      <nav className="phase-nav desktop-nav" aria-label="Project phases">
-        <span className="nav-caption">Workspace</span>
-        {phases.map((phase) => (
+  // Keep the current step visible in the rail after navigation or a reload.
+  // Guarded because non-browser test environments do not implement scrolling.
+  useEffect(() => {
+    const element = activeRef.current;
+    if (typeof element?.scrollIntoView === 'function') {
+      element.scrollIntoView({ block: 'nearest', inline: 'center' });
+    }
+  }, [activePath]);
+
+  return (
+    <nav className="phase-nav" aria-label="Project phases">
+      <span className="nav-caption">Workspace</span>
+      {phases.map((phase) => {
+        const isActivePath = phase.path === activePath;
+        return (
           <NavLink
+            aria-current={isActivePath ? 'page' : undefined}
             className={({ isActive }) => isActive ? 'phase-link active' : 'phase-link'}
             key={phase.path}
+            ref={isActivePath ? activeRef : undefined}
             to={phase.path}
           >
-            <span className="phase-index" aria-hidden="true">{phase.path === '/home' ? '•' : phase.label.charAt(0)}</span>
-            {phase.label}
+            <span className="phase-index" aria-hidden="true">{phase.step}</span>
+            <span className="phase-label">{phase.label}</span>
           </NavLink>
-        ))}
-      </nav>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -79,7 +92,6 @@ function AppShell({ session, onSignOut }: { session: AuthSessionState; onSignOut
           <span className="brand-mark" aria-hidden="true">O</span>
           <span>Obsidian</span>
         </NavLink>
-        <WizardNavigation mobile />
         <div className="topbar-meta">
           <span className="safety-label"><span className="safety-dot" aria-hidden="true" />Original project stays safe</span>
           {session.status === 'authenticated' && session.user ? <span className="topbar-user">{summary(session.user.login, 20)}</span> : null}
@@ -87,7 +99,7 @@ function AppShell({ session, onSignOut }: { session: AuthSessionState; onSignOut
       </header>
 
       <div className="workspace">
-        <WizardNavigation />
+        <PhaseNavigation />
         <main className="phase-main">
           <Routes>
             <Route path="/home" element={<HomePage session={session} onSignOut={onSignOut} />} />

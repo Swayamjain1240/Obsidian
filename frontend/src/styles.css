@@ -53,13 +53,14 @@ p { max-width: 64ch; color: var(--muted-strong); font-size: 0.9375rem; line-heig
 .topbar-meta { gap: 1.2rem; }
 .safety-dot { width: 0.42rem; height: 0.42rem; border-radius: 50%; background: var(--green); box-shadow: 0 0 0.7rem rgba(147, 230, 189, 0.8); }
 .workspace { position: relative; z-index: 1; display: grid; grid-template-columns: 11.5rem minmax(0, 1fr); min-height: 0; }
-.phase-nav { display: flex; flex-direction: column; gap: 0.4rem; padding: 1.35rem 0.65rem; border-right: 1px solid var(--line-soft); background: rgba(14, 11, 20, 0.5); }
+.phase-nav { display: flex; flex-direction: column; gap: 0.4rem; min-height: 0; overflow-y: auto; padding: 1.35rem 0.65rem; border-right: 1px solid var(--line-soft); background: rgba(14, 11, 20, 0.5); scrollbar-width: thin; }
 .nav-caption { margin: 0.2rem 0.65rem 0.65rem; color: var(--muted); font-size: 0.75rem; font-weight: 750; letter-spacing: 0.1em; text-transform: uppercase; }
 .phase-link { display: flex; align-items: center; gap: 0.55rem; min-height: 44px; padding: 0.55rem 0.6rem; border: 1px solid transparent; border-radius: 0.65rem; color: var(--muted); font-size: 0.8125rem; text-decoration: none; }
 .phase-link:hover, .phase-link.active { border-color: var(--line); color: var(--text); background: rgba(111, 79, 208, 0.13); }
 .phase-link.active { box-shadow: inset 2px 0 0 var(--violet); }
 .phase-index { display: grid; place-items: center; flex: 0 0 auto; width: 1.2rem; height: 1.2rem; border: 1px solid #695484; border-radius: 0.4rem; color: var(--violet-bright); font-size: 0.75rem; }
-.mobile-nav { display: none; }
+.phase-link.active .phase-index { border-color: var(--violet); color: #150e24; background: linear-gradient(145deg, #d1c2ff, #9d7bf0); }
+.phase-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .phase-main { display: flex; min-width: 0; min-height: 0; padding: clamp(1rem, 2vw, 2rem); }
 .page-layout { display: flex; flex-direction: column; gap: 1rem; width: min(100%, 76rem); height: 100%; min-height: 0; margin: 0 auto; }
 .page-intro { display: flex; flex-direction: column; flex: 0 0 auto; gap: 0.4rem; }
@@ -177,9 +178,16 @@ select { width: 100%; min-width: 0; min-height: 44px; padding: 0.5rem 0.6rem; bo
 
 @media (max-width: 1049px), (max-height: 649px) {
   .topbar { padding: 0 0.75rem; gap: 0.75rem; }
-  .topbar-meta, .desktop-nav { display: none; }
-  .workspace { grid-template-columns: minmax(0, 1fr); }
-  .mobile-nav { display: block; min-width: 0; width: min(16rem, 57%); }
+  .topbar-meta { display: none; }
+  /* The sidebar becomes a scrollable step rail instead of collapsing into a
+     dropdown, so every phase stays one tap away. */
+  .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .phase-nav { flex-direction: row; gap: 0.35rem; overflow-x: auto; overflow-y: hidden; padding: 0.45rem 0.75rem; border-right: 0; border-bottom: 1px solid var(--line-soft); background: rgba(14, 11, 20, 0.72); scroll-snap-type: x proximity; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .phase-nav::-webkit-scrollbar { display: none; }
+  .nav-caption { display: none; }
+  .phase-link { flex: 0 0 auto; min-height: 40px; padding: 0.35rem 0.6rem; scroll-snap-align: center; }
+  .phase-link.active { border-color: rgba(169, 140, 255, 0.5); background: rgba(111, 79, 208, 0.22); box-shadow: none; }
+  .phase-index { width: 1.1rem; height: 1.1rem; font-size: 0.7rem; }
   .phase-main { padding: 0.75rem; }
   .page-layout { gap: 0.75rem; }
   .page-intro p { display: none; }
@@ -202,6 +210,8 @@ select { width: 100%; min-width: 0; min-height: 44px; padding: 0.5rem 0.6rem; bo
 @media (max-height: 500px) {
   .app-shell { grid-template-rows: 44px minmax(0, 1fr); }
   .topbar { border: 0; }
+  .phase-nav { padding-block: 0.3rem; }
+  .phase-link { min-height: 34px; }
   .phase-main { padding: 0.5rem; }
   .page-layout, .tabbed-panel { gap: 0.5rem; }
   .page-intro, .confirmation-panel > .panel-heading { position: absolute; width: 1px; height: 1px; margin: -1px; clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; }
