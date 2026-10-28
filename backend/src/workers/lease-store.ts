@@ -114,7 +114,7 @@ export class MongoWorkerLeaseStore implements WorkerLeaseStore {
       const record = await WorkerLeaseModel.findOneAndUpdate(
         { state: { $in: ['claimed', 'running'] }, leaseExpiresAt: { $lte: new Date(now) } },
         { $set: { state: 'recovery', ownerId: recoveryOwnerId, leaseExpiresAt: new Date(recoveryLeaseExpiresAt), heartbeatAt: new Date(now) }, $inc: { fence: 1 } },
-        { sort: { leaseExpiresAt: 1 }, new: true, lean: true },
+        { sort: { leaseExpiresAt: 1 }, returnDocument: 'after', lean: true },
       ).exec().catch(() => null);
       if (!record) break;
       records.push(fromRecord(record as unknown as Record<string, unknown>));

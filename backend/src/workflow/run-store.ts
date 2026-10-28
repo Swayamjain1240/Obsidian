@@ -171,7 +171,7 @@ export class DurableRunStore {
       const updated = await DurableRunStateModel.findOneAndUpdate(
         filter,
         { $set: { ownerUserId, runId, phase, schemaVersion: 2, revision: next.revision, lifecycleState: next.lifecycleState ?? null, recovery: next.recovery ?? null, payload: next, updatedAt: new Date() } },
-        { upsert: !current, new: true, setDefaultsOnInsert: true, writeConcern: { w: 'majority', j: true } },
+        { upsert: !current, returnDocument: 'after', setDefaultsOnInsert: true, writeConcern: { w: 'majority', j: true } },
       ).lean().exec();
       if (!updated) throw new DurableRunPersistenceError('Run state revision changed before it could be persisted.');
       this.cache.set(key, cloneValue(next));

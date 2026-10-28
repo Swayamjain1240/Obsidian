@@ -43,7 +43,8 @@ const authSessionSchema = new Schema(
     accessTokenIv: { type: String, required: true },
     accessTokenTag: { type: String, required: true },
     accessTokenKeyId: { type: String, required: false, default: null },
-    expiresAt: { type: Date, required: true, index: true },
+    // TTL index is declared below; a second `index: true` here would drop its options.
+    expiresAt: { type: Date, required: true },
   },
   { timestamps: true },
 );

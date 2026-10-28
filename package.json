@@ -19,7 +19,8 @@
     "audit": "npm audit --audit-level=high",
     "verify:worker-image": "node scripts/verify-worker-image.mjs",
     "test:mongodb": "node scripts/mongodb-replica-test.mjs",
-    "test:mongodb:backup": "node scripts/mongodb-backup-restore.mjs"
+    "test:mongodb:backup": "node scripts/mongodb-backup-restore.mjs",
+    "sync:indexes": "npm run sync:indexes --workspace backend"
   },
   "engines": {
     "node": ">=22.19.0"

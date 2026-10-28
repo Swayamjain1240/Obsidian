@@ -117,7 +117,7 @@ export class DurableWorkflowStore implements WorkflowStore {
       const updated = await WorkflowStateModel.findOneAndUpdate(
         filter,
         { $set: { ownerUserId, kind, stateId: id, schemaVersion: 2, revision: next.revision, payload: next, updatedAt: new Date() } },
-        { upsert: !current, new: true, setDefaultsOnInsert: true, writeConcern: { w: 'majority', j: true } },
+        { upsert: !current, returnDocument: 'after', setDefaultsOnInsert: true, writeConcern: { w: 'majority', j: true } },
       ).lean().exec();
       if (!updated) throw new WorkflowRevisionConflictError(expectedRevision ?? actualRevision, actualRevision);
       this.cache.set(key, cloneValue(next));
@@ -149,7 +149,7 @@ export class DurableWorkflowStore implements WorkflowStore {
         const updated = await WorkflowStateModel.findOneAndUpdate(
           filter,
           { $set: { ownerUserId, kind: entry.kind, stateId: entry.id, schemaVersion: 2, revision: next.revision, payload: next, updatedAt: new Date() } },
-          { upsert: !current, new: true, setDefaultsOnInsert: true, session, writeConcern: { w: 'majority', j: true } },
+          { upsert: !current, returnDocument: 'after', setDefaultsOnInsert: true, session, writeConcern: { w: 'majority', j: true } },
         ).lean().exec();
         if (!updated) throw new WorkflowRevisionConflictError(actualRevision, actualRevision);
         return next;
