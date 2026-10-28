@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import type { AuthSessionState } from '../hooks/useAuthSession';
 import { useViewport } from '../hooks/useViewport';
 import { useGsapReveal } from '../motion';
-import { selectRepository as selectRepositoryApi, type RepositorySummary } from '../api';
+import { githubLoginUrl, selectRepository as selectRepositoryApi, type RepositorySummary } from '../api';
 import { RepositoryPicker } from '../components/RepositoryPicker';
 import { PanelTabs } from '../components/PanelTabs';
 import { PagedText, summary } from '../components/PagedText';
@@ -33,7 +33,7 @@ export function HomePage({ session, onSignOut }: HomePageProps) {
           <button className="identity-pill" type="button" aria-label="View account details" aria-expanded={accountOpen} onClick={() => setAccountOpen((value) => !value)}>Signed in as <strong>{summary(session.user.login, 22)}</strong></button>
           <button className="quiet-button" type="button" onClick={onSignOut}>Sign out</button>
         </div>
-      ) : session.configured ? <a className="primary-button" href="/auth/github/start">Continue with GitHub</a> : <p className="message warning-message" role="status">GitHub sign-in is not configured for this environment.</p>}
+      ) : session.configured ? <a className="primary-button" href={githubLoginUrl()}>Continue with GitHub</a> : <p className="message warning-message" role="status">GitHub sign-in is not configured for this environment.</p>}
       {viewport.compact && session.status !== 'authenticated' ? <p className="safety-caption">Your project stays yours.</p> : null}
     </div>
   );

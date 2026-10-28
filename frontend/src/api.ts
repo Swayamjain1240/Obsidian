@@ -373,6 +373,12 @@ function apiUrl(input: RequestInfo | URL): RequestInfo | URL {
   return `${API_BASE_URL}${input}`;
 }
 
+// Sign-in starts on the backend, so a separately hosted frontend must link to the
+// configured API origin instead of its own. With no base URL the Vite proxy serves it.
+export function githubLoginUrl(): string {
+  return String(apiUrl('/auth/github/start'));
+}
+
 function checkAborted(signal?: AbortSignal | null): void {
   if (signal?.aborted) throw new DOMException('The request was aborted.', 'AbortError');
 }

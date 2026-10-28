@@ -1,3 +1,6 @@
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
+
 import cors from 'cors';
 import express, { type Request, type Response } from 'express';
 
@@ -22,7 +25,7 @@ import { WorkflowService } from './workflow/service.js';
 import { DurableWorkflowStore } from './workflow/store.js';
 import { DurableRunStore } from './workflow/run-store.js';
 import { getDatabaseRuntimeStatus } from './db/runtime.js';
-import { authRateLimit, normalizeRequestId, requireJsonContentType, securityMiddleware } from './security.js';
+import { authRateLimit, normalizeRequestId, pollRateLimit, requireJsonContentType, securityMiddleware } from './security.js';
 import { createRequiredSecurityAuditSink, requireSecurityAudit, type SecurityAuditSink } from './security-audit.js';
 import { checkDockerSandbox } from './workers/docker-preflight.js';
 import { DockerBrokerExecutor } from './workers/docker-broker.js';
@@ -71,6 +74,9 @@ export function createApp(config: AppConfig, dependencies: {
     next();
   });
   app.use(securityMiddleware(config));
+  // Mounted globally but self-limiting to run status polls; it must stay ahead of the
+  // routers so a long run cannot exhaust its budget before the next poll arrives.
+  app.use(pollRateLimit(config));
   app.use(express.json({ limit: '100kb' }));
   app.use(requireJsonContentType);
   app.use(
@@ -95,9 +101,21 @@ export function createApp(config: AppConfig, dependencies: {
   app.get('/health/ready', async (_request: Request, response: Response) => {
     const runtime = await getDatabaseRuntimeStatus();
     const mongodb = runtime.status;
-    const worker = mongodb === 'connected'
-      ? await checkDockerSandbox(config.BASELINE_WORKER_IMAGE, 'docker', workerExecutor)
-      : { available: false, summary: 'Worker preflight is waiting for MongoDB readiness.' };
+    // The worker preflight must run inside a strict child of the trusted snapshot root:
+    // the executor rejects the backend cwd (outside the root) and the root itself, so a
+    // dedicated empty workspace is created and reused for every readiness probe.
+    const preflightWorkspace = path.join(path.resolve(config.SNAPSHOT_ROOT), '.preflight');
+    let worker: { available: boolean; summary: string };
+    if (mongodb !== 'connected') {
+      worker = { available: false, summary: 'Worker preflight is waiting for MongoDB readiness.' };
+    } else {
+      try {
+        await mkdir(preflightWorkspace, { recursive: true });
+        worker = await checkDockerSandbox(config.BASELINE_WORKER_IMAGE, 'docker', workerExecutor, preflightWorkspace);
+      } catch {
+        worker = { available: false, summary: 'Worker preflight workspace is unavailable.' };
+      }
+    }
     const ready = mongodb === 'connected' && worker.available;
     response.status(ready ? 200 : 503).json({
       status: ready ? 'ready' : 'not_ready',

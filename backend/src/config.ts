@@ -14,6 +14,10 @@ const configSchema = z.object({
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(0),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
+  // Run status polls are the only high-frequency client traffic: a single baseline
+  // run legitimately polls every 750ms for up to 10 minutes (~800 requests), so
+  // they are budgeted separately from ordinary API calls.
+  RATE_LIMIT_POLL_MAX_REQUESTS: z.coerce.number().int().positive().max(100_000).default(2_400),
   RATE_LIMIT_AUTH_MAX_REQUESTS: z.coerce.number().int().positive().max(1_000).default(20),
   RATE_LIMIT_MUTATION_MAX_REQUESTS: z.coerce.number().int().positive().max(10_000).default(60),
   REQUIRE_SECURITY_AUDIT: z.preprocess((value) => {

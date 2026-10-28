@@ -114,4 +114,38 @@ describe('backend health routes', () => {
     expect(second.status).toBe(429);
     expect(second.body.error.code).toBe('RATE_LIMITED');
   });
+
+  it('does not spend the general API budget on in-flight run status polls', async () => {
+    const app = createApp({ ...config, RATE_LIMIT_MAX_REQUESTS: 1 });
+    expect((await request(app).get('/api/v1/status')).status).toBe(200);
+    expect((await request(app).get('/api/v1/status')).status).toBe(429);
+
+    // A ten minute baseline run polls every 750ms: 800 reads, all outside the
+    // general budget, and none of them may fail with RATE_LIMITED.
+    for (const path of [
+      '/api/v1/intake/detections/run_1',
+      '/api/v1/intake/completeness/run_1',
+      '/api/v1/intake/baseline/run_1',
+      '/api/v1/workflow/enhancements/run_1',
+      '/api/v1/workflow/version2/run_1',
+    ]) {
+      for (let index = 0; index < 5; index += 1) {
+        expect((await request(app).get(path)).status).not.toBe(429);
+      }
+    }
+  });
+
+  it('meters run status polls with their own bounded budget', async () => {
+    const app = createApp({ ...config, RATE_LIMIT_POLL_MAX_REQUESTS: 2 });
+    const statuses: number[] = [];
+    for (let index = 0; index < 3; index += 1) {
+      statuses.push((await request(app).get('/api/v1/intake/baseline/run_1')).status);
+    }
+
+    expect(statuses[0]).not.toBe(429);
+    expect(statuses[1]).not.toBe(429);
+    expect(statuses[2]).toBe(429);
+    // Mutations still draw from the general budget, not the polling budget.
+    expect((await request(app).get('/api/v1/status')).status).toBe(200);
+  });
 });

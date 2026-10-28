@@ -7,10 +7,23 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const services = [
   { name: 'frontend', cwd: path.join(root, 'frontend') },
-  { name: 'backend', cwd: path.join(root, 'backend') },
+  { name: 'backend', cwd: path.join(root, 'backend'), usesPort: true },
 ];
 const children = [];
 let stopping = false;
+
+// A stray PORT exported by the parent shell (for example PORT=0 from an IDE) wins
+// over backend/.env because dotenv never overrides variables that are already set,
+// and the backend then aborts with "Invalid environment configuration: PORT".
+// Drop an unusable value so the service's own .env decides; honour a usable one.
+function sanitizePort(env, name) {
+  const port = env.PORT;
+  if (port === undefined || port === '') return env;
+  if (/^\d+$/.test(String(port).trim()) && Number(port) > 0) return env;
+  delete env.PORT;
+  console.warn(`[dev] ignoring unusable PORT=${JSON.stringify(port)} from your shell for ${name}; its .env value will be used.`);
+  return env;
+}
 
 function pipeOutput(name, stream, method = 'log') {
   const lines = createInterface({ input: stream });
@@ -34,9 +47,10 @@ function stop(code = 0) {
 }
 
 for (const service of services) {
+  const spawnedEnv = { ...process.env, FORCE_COLOR: '1' };
   const child = spawn(npm, ['run', 'dev'], {
     cwd: service.cwd,
-    env: { ...process.env, FORCE_COLOR: '1' },
+    env: service.usesPort ? sanitizePort(spawnedEnv, service.name) : spawnedEnv,
     shell: process.platform === 'win32',
     stdio: ['ignore', 'pipe', 'pipe'],
   });

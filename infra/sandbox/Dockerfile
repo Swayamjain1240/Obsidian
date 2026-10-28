@@ -1,5 +1,4 @@
-FROM node:22.23.3-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
-
+FROM node:22.23.4-bookworm-slim@sha256:ea11b74b986d520137cdef9a5346e447a00f275ecc4abc0055b7151226231e09
 ENV NODE_ENV=production \
     CI=true \
     NPM_CONFIG_AUDIT=false \
