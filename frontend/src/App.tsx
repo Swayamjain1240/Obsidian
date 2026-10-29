@@ -11,6 +11,9 @@ import { DetectionPage } from './pages/DetectionPage';
 import { HealthPage } from './pages/HealthPage';
 import { HomePage } from './pages/HomePage';
 import { RepositoryPage } from './pages/RepositoryPage';
+import { WelcomePage } from './pages/WelcomePage';
+import { LoginPage } from './pages/LoginPage';
+import { SignupPage } from './pages/SignupPage';
 import { summary } from './components/PagedText';
 
 const phases = [
@@ -37,7 +40,7 @@ function ProtectedRoute({ session, children }: { session: AuthSessionState; chil
     );
   }
 
-  if (session.status !== 'authenticated') return <Navigate replace to="/home" />;
+  if (session.status !== 'authenticated') return <Navigate replace to="/login" />;
   return <>{children}</>;
 }
 
@@ -112,7 +115,7 @@ function AppShell({ session, onSignOut }: { session: AuthSessionState; onSignOut
             <Route path="/project/enhance" element={<ProtectedRoute session={session}><WorkflowPage /></ProtectedRoute>} />
             <Route path="/project/delivery" element={<ProtectedRoute session={session}><WorkflowPage /></ProtectedRoute>} />
             <Route path="/health" element={<ProtectedRoute session={session}><HealthPage /></ProtectedRoute>} />
-            <Route path="*" element={<Navigate replace to="/home" />} />
+            <Route path="*" element={<Navigate replace to="/welcome" />} />
           </Routes>
         </main>
       </div>
@@ -120,7 +123,26 @@ function AppShell({ session, onSignOut }: { session: AuthSessionState; onSignOut
   );
 }
 
+function AuthRoutes() {
+  return (
+    <Routes>
+      <Route path="/welcome" element={<WelcomePage />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/signup" element={<SignupPage />} />
+      <Route path="*" element={<Navigate replace to="/welcome" />} />
+    </Routes>
+  );
+}
+
 export function App() {
   const { session, signOut } = useAuthSession();
+  const location = useLocation();
+  
+  const isAuthPage = ['/welcome', '/login', '/signup'].includes(location.pathname);
+  
+  if (isAuthPage) {
+    return <AuthRoutes />;
+  }
+  
   return <AppShell session={session} onSignOut={() => void signOut()} />;
 }
